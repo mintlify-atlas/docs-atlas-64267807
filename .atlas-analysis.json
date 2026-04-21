@@ -1,0 +1,88 @@
+{
+  "projectType": "general",
+  "projectName": "Skid Archive",
+  "projectDescription": "A collection of leaked and exploited Discord bot source code, documenting extracted bots including multi-feature community bots, vanity URL snipers, mass DM bots, and auto-PFP bots.",
+  "theme": "aspen",
+  "primaryColor": "#5865F2",
+  "lightColor": "#7289DA",
+  "darkColor": "#2C2F33",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Introduction",
+            "pages": ["introduction", "repository-structure"]
+          },
+          {
+            "group": "Bots",
+            "pages": [
+              "bots/allstar",
+              "bots/cb0-usebot",
+              "bots/prada",
+              "bots/belongs",
+              "bots/cut",
+              "bots/harm",
+              "bots/violated"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "utilities/vanity-sniper",
+              "utilities/massdm-bots",
+              "utilities/auto-pfp",
+              "utilities/api-server"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Code Reference",
+        "groups": [
+          {
+            "group": "Allstar Bot",
+            "pages": [
+              "reference/allstar-commands",
+              "reference/allstar-antinuke",
+              "reference/allstar-events"
+            ]
+          },
+          {
+            "group": "Selfbot (main)",
+            "pages": [
+              "reference/selfbot-overview",
+              "reference/selfbot-core"
+            ]
+          },
+          {
+            "group": "Vanity Sniper",
+            "pages": [
+              "reference/vanity-sniper-internals"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Allstar: full-featured Discord.js community bot with 100+ commands",
+    "Anti-nuke system with configurable protections (ban, kick, channel/role create/delete/update)",
+    "Vanity URL sniper using Discord WebSocket gateway to steal guild vanity codes",
+    "Mass DM bot that sends spam messages to new members across guilds",
+    "Auto-PFP bots that post images to channels on a timed loop",
+    "cb0/usebot: multi-category Python bot with SQLite, music, voice, and image posting",
+    "Prada/Belongs: modular Python bots using cog architecture and discord.py",
+    "Various self-bot implementations using discord.py-self for user account automation"
+  ],
+  "publicApiSurface": [
+    "Allstar prefix commands (default prefix: configurable, 100+ commands)",
+    "Allstar slash commands (registered via Discord REST API)",
+    "POST /interactions — Express API endpoint for Discord interaction callbacks",
+    "GET /interactions — Express API health endpoint",
+    "Sniper.start() — WebSocket-based vanity URL sniper entry point",
+    "Slut() — discord.py-self selfbot entry point with prefix ';'",
+    "Bot.run(token) — Standard discord.py bot runner"
+  ]
+}

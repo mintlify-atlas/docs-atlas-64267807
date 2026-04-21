@@ -1,0 +1,255 @@
+---
+title: "Allstar event handlers: welcome, logging, and starboard"
+description: "Allstar handles member join/leave events with customizable embeds, join DMs, auto-role, a ⭐ starboard, guild notifications, and per-guild audit log posting."
+---
+
+Beyond commands, Allstar registers a set of always-on Discord gateway event handlers in `index.js`. These drive member greeting, departure messages, join DMs, auto-role assignment, starboard, and audit logging — all configured through bot commands and stored in quick.db.
+
+## Welcome system
+
+**Discord event:** `guildMemberAdd` | **DB key:** `welchannel_<guildId>`
+
+When a member joins, the bot reads the welcome channel (`welchannel_<guildId>`) and message template (`welmessage_<guildId>`). It substitutes any template variables in the message string, then sends the result to the configured channel.
+
+If the embed toggle (`embedoff_<guildId>`) is set to `true`, the message is wrapped in a `MessageEmbed` with all configured decorators. Otherwise it is sent as plain text.
+
+Bots are excluded — the handler returns early when `member.user.bot === true`.
+
+```javascript
+// index.js:403-494
+client.on("guildMemberAdd", async (member) => {
+  if (member.user.bot) return;
+
+  let chx = db.get(`welchannel_${member.guild.id}`);
+  if (chx === null) return;
+
+  let welcome = db.get(`welmessage_${member.guild.id}`);
+  if (welcome === null) return;
+
+  // Variable substitution
+  welcome = welcome.replace('{user}', member);
+  welcome = welcome.replace('{user.name}', member.user.username);
+  welcome = welcome.replace('{user.tag}', member.user.tag);
+  welcome = welcome.replace('{user.id}', member.user.id);
+  welcome = welcome.replace('{membercount}', member.guild.memberCount);
+  // ordinal: "1st", "2nd", "3rd", "4th", ...
+  welcome = welcome.replace('{membercount.ordinal}', member.guild.memberCount + ordinal);
+  welcome = welcome.replace('{guild.name}', member.guild.name);
+  welcome = welcome.replace('{guild.id}', member.guild.id);
+
+  let em = db.get(`embedoff_${member.guild.id}`);
+  if (em) {
+    client.channels.cache.get(chx).send({ content: `${member}`, embeds: [welcembed] });
+  } else {
+    client.channels.cache.get(chx).send({ content: `${welcome}` });
+  }
+});
+```
+
+### Welcome template variables
+
+All variables below work in the `message`, `footer`, `author`, `thumbnail`, and `image` fields of the welcome embed.
+
+| Variable | Resolves to |
+|---|---|
+| `{user}` | Member mention (`<@userId>`) |
+| `{user.name}` | Username without discriminator |
+| `{user.tag}` | `username#discriminator` |
+| `{user.id}` | Snowflake ID |
+| `{membercount}` | Current member count as a number |
+| `{membercount.ordinal}` | Member count with ordinal suffix (e.g. `42nd`) |
+| `{guild.name}` | Server name |
+| `{guild.id}` | Server snowflake ID |
+| `{user.icon}` | Member's avatar URL (image/thumbnail only) |
+| `{guild.icon}` | Server's icon URL (image/thumbnail only) |
+
+### Welcome DB keys
+
+| Key | Purpose |
+|---|---|
+| `welchannel_<guildId>` | Channel ID for welcome messages |
+| `welmessage_<guildId>` | Message template string |
+| `welcembed_<guildId>` | Footer text |
+| `author_<guildId>` | Author text for the embed |
+| `color_<guildId>` | Embed color (hex string) |
+| `thumbnail_<guildId>` | Thumbnail URL or `{user.icon}` / `{guild.icon}` |
+| `image_<guildId>` | Image URL or `{user.icon}` / `{guild.icon}` |
+| `embedoff_<guildId>` | `true` = use embed, absent = use plain text |
+
+Configure all of these with the `welcome` command. Run `welcome stats` to inspect the current configuration.
+
+<Tip>
+  Run `welcome test` to preview the welcome message in the configured channel without waiting for a real member to join.
+</Tip>
+
+## Leave system
+
+**Discord event:** `guildMemberRemove` | **DB key:** `leavechannel_<guildId>`
+
+Mirrors the welcome system. When a member leaves (or is kicked/banned), the bot reads `leavechannel_<guildId>` and `leavemessage_<guildId>`, substitutes the same template variables, and sends the result.
+
+| Key | Purpose |
+|---|---|
+| `leavechannel_<guildId>` | Channel ID for leave messages |
+| `leavemessage_<guildId>` | Message template string |
+| `leaveembed_<guildId>` | Footer text |
+| `leaveauthor_<guildId>` | Author text |
+| `leavecolor_<guildId>` | Embed color |
+| `leavethumbnail_<guildId>` | Thumbnail URL |
+| `leaveimage_<guildId>` | Image URL |
+
+Configure with the `goodbye` command.
+
+## Join DM system
+
+**Discord event:** `guildMemberAdd` | **DB key:** `joindmmessage_<guildId>`
+
+When a member joins, the bot also checks `joindmmessage_<guildId>`. If set, it sends the member a DM — including a disabled button that shows the guild name so the recipient knows which server it came from.
+
+```javascript
+// index.js:319-401
+const row = new MessageActionRow().addComponents(
+  new MessageButton()
+    .setCustomId('primary')
+    .setLabel('Message sent from Server: ' + member.guild.name)
+    .setStyle('SECONDARY')
+    .setDisabled(true)
+);
+
+if (em) {
+  member.send({ content: `${member}`, embeds: [welcembed], components: [row] });
+} else {
+  member.send({ content: `${welcome}`, components: [row] });
+}
+```
+
+Supports the same template variables and embed options (`author`, `footer`, `image`, `thumbnail`, `color`) as the welcome system. Configure with the `joindm` command.
+
+| Key | Purpose |
+|---|---|
+| `joindmmessage_<guildId>` | DM message template |
+| `joindmwelcembed_<guildId>` | Footer text |
+| `joindmauthor_<guildId>` | Author text |
+| `joindmcolor_<guildId>` | Embed color |
+| `joindmthumbnail_<guildId>` | Thumbnail URL |
+| `joindmimage_<guildId>` | Image URL |
+| `joindmembedoff_<guildId>` | `true` = use embed mode |
+
+## Auto-role
+
+**Discord event:** `guildMemberAdd` | **DB key:** `autorole_<guildId>`
+
+The first `guildMemberAdd` handler (before the welcome system) checks for an auto-role. If `autorole_<guildId>` is set and the role exists in the guild's cache, it is added to the member.
+
+```javascript
+// index.js:113-124
+client.on("guildMemberAdd", async (member) => {
+  if (member.user.bot) return;
+  const role = member.guild.roles.cache.find(
+    r => r.id === db.get(`autorole_${member.guild.id}`)
+  );
+  if (role) member.roles.add(role, { reason: "Auto-Role" });
+});
+```
+
+Configure with `autorole @role`. Remove with `autorole none`.
+
+## Starboard
+
+**Discord events:** `messageReactionAdd`, `messageReactionRemove` | **DB key:** `starboard_<guildId>`
+
+The bot watches for ⭐ reactions. When the reaction count on a message reaches or exceeds the configured threshold (`starthreshold<guildId>`), the message is reposted to the starboard channel.
+
+If the message already exists in the starboard channel (matched by the message ID stored in the embed footer), the existing post is updated with the new count. Otherwise a new embed is created with:
+
+- Author: the original message author's tag and avatar
+- Description: the original message content
+- Footer: `<count> - ⭐` (also used as the lookup key)
+- A **Message Link** button pointing to the original message
+
+```javascript
+// index.js:1306-1353
+client.on('messageReactionAdd', async (reaction, user) => {
+  let enabled = db.get(`starboard_${reaction.message.guild.id}`);
+  let toCount = db.get(`starthreshold${reaction.message.guild.id}`);
+  if (toCount > reaction.count) return;
+
+  if (reaction.emoji.name === '⭐') {
+    const starboard = client.channels.cache.get(enabled);
+    const msgs = await starboard.messages.fetch({ limit: 100 });
+    const existingMsg = msgs.find(msg =>
+      msg.embeds[0]?.footer?.text?.startsWith(reaction.message.id)
+    );
+
+    if (existingMsg) {
+      existingMsg.edit(`${reaction.count} - ⭐`);
+    } else {
+      starboard.send({ content: `${reaction.count} - ⭐`, embeds: [embed], components: [row] });
+    }
+  }
+});
+```
+
+| Key | Purpose |
+|---|---|
+| `starboard_<guildId>` | Channel ID for the starboard |
+| `starthreshold<guildId>` | Minimum ⭐ count to trigger a post |
+
+<Note>
+  The `messageReactionRemove` handler uses the same logic. If a message falls below threshold it will still appear in the starboard — the handler only skips posting if it's already there and updates the count otherwise.
+</Note>
+
+## Guild notifications
+
+**Discord events:** `guildCreate`, `guildDelete`
+
+When the bot joins a guild, it posts an embed to the hardcoded internal channel `1031658285163630632` containing the guild name, owner, ID, and member count. It also generates and includes an invite link, and renames the channel to reflect the total server count.
+
+Before joining, it checks:
+- `blacklistedguild<guildId>` — if `true`, the bot leaves immediately
+- `guildcount` — if the guild's member count is below the configured minimum, the bot leaves unless the guild is in the trusted list (`trustedguild`)
+
+When the bot leaves a guild, it posts a "Left Guild" embed to the same notification channel.
+
+```javascript
+// index.js:750-761 (guildDelete)
+client.on("guildDelete", (guild) => {
+  const EmbedLeave = new MessageEmbed()
+    .setColor(error)
+    .setTitle(`Left Guild: ${guild.name}.`)
+    .setDescription(`Name: ${guild.name}\nOwner: ${owner}\nID: ${guild.id}\nMembers: ${guild.memberCount}`);
+  client.channels.cache.get('1031658285163630632').send({ embeds: [EmbedLeave] });
+});
+```
+
+## Audit logging
+
+Allstar posts a structured mod-log embed to `logs_<guildId>` for every audited action, regardless of whether the antinuke protection fires. The embed description follows the format:
+
+```
+**Mod Logs**
+→ <executor tag>
+→ <action description>
+```
+
+Logged events and their audit log types:
+
+| Event | Audit type | Description field |
+|---|---|---|
+| Ban | `MEMBER_BAN_ADD` | `Banned <username>` |
+| Kick | `MEMBER_KICK` | `Kicked <username>` |
+| Bot add | `BOT_ADD` | `Added a Bot Integration: <username>` |
+| Channel create | `CHANNEL_CREATE` | `Created Channel: #channel` |
+| Channel delete | `CHANNEL_DELETE` | `Deleted Channel: <name>` |
+| Channel update | `CHANNEL_UPDATE` | `Updated Channel: <old name> \| #channel` |
+| Role create | `ROLE_CREATE` | `Created a Role <name>` |
+| Role delete | `ROLE_DELETE` | `Deleted a Role <name>` |
+| Role update | `ROLE_UPDATE` | `Updated a Role: <old> \|\| <new>` |
+| Member role update | `MEMBER_ROLE_UPDATE` | `Updated roles for <username>` |
+| Webhook create | `WEBHOOK_CREATE` | `Created a Webhook` |
+| Webhook update | `WEBHOOK_UPDATE` | `Updated a Webhook` |
+| Webhook delete | `WEBHOOK_DELETE` | `Deleted a Webhook` |
+| Guild update | `GUILD_UPDATE` | `Updated Server settings — Name: <old> \| <new>` |
+| Vanity update | `GUILD_UPDATE` | `Updated Server Vanity: <old> \| <new>` |
+
+Set the log channel with `logs channel #channel`. Clear it with `logs clear`.

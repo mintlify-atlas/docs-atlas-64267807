@@ -1,0 +1,239 @@
+---
+title: "Selfbot overview: discord.py-self user account bot"
+description: "The main/ selfbot runs on discord.py-self, automating a real Discord user account with prefix commands, jishaku REPL, and owner-only developer cogs."
+---
+
+The Skid Archive selfbot automates a real Discord **user account** — not a bot application — using the `discord.py-self` library. It loads on startup, registers prefix commands under `;`, and gives its single owner a jishaku-powered Python REPL directly in Discord chat.
+
+<Warning>
+  Selfbots violate [Discord's Terms of Service](https://discord.com/terms) (section 8, "Automated User Accounts"). Running one risks permanent account termination. This documentation exists for archival and educational reference only.
+</Warning>
+
+## What is a selfbot?
+
+A selfbot connects to Discord's gateway using a **user token**, not a bot application token. This means it acts as a logged-in human account from Discord's perspective — it can read messages, send messages, and react, all under the identity of a real user. This is distinct from an authorised bot application, which uses a separate token class (`Bot …`) and is subject to different gateway rules.
+
+The key difference in practice:
+
+| | Bot application | Selfbot |
+|---|---|---|
+| Token prefix | `Bot <token>` | Raw user token (no prefix) |
+| Allowed by Discord ToS | Yes | **No** |
+| Library used here | `discord.py` | `discord.py-self` (`renamed` branch) |
+| Appears in server member list as | Bot tag | Normal user |
+
+The token hardcoded in `core/Slut.py` is a **user token**. Anyone who obtains it can log into the account and act on its behalf.
+
+## Project layout
+
+```
+main/
+├── main.py                      # Entry point — instantiates Slut()
+├── requirements.txt             # Python dependencies
+└── core/
+    ├── Slut.py                  # Bot subclass and configuration
+    └── client/
+        └── patch/
+            └── help.py          # Custom HelpCommand
+categories/
+└── dev/
+    └── dev.py                   # Owner-only Developer cog
+```
+
+## Entry point
+
+`main/main.py` is four lines. It imports `Slut` from the `core` package and calls its constructor, which internally calls `self.run()` — so the bot connects to Discord synchronously from `__init__`.
+
+```python
+# main/main.py
+from core import Slut
+
+if __name__ == "__main__":
+    Slut()
+```
+
+## The `Slut` class
+
+`Slut` extends `discord.ext.commands.Bot` and configures every gateway option in its constructor.
+
+```python
+# core/Slut.py
+from discord import Intents, Status, AllowedMentions
+from discord.ext.commands import Bot, Cog
+
+from .client.patch.help import HelpCommand
+
+
+class Slut(Bot):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(
+            intents=Intents.all(),
+            command_prefix=";",
+            case_insensitive=True,
+            owner_ids=[1148300105758298123],
+            allowed_mentions=AllowedMentions(
+                everyone=False,
+                roles=False,
+                users=True,
+                replied_user=True,
+            ),
+            help_command=HelpCommand(),
+            status=Status.invisible,
+            *args,
+            **kwargs
+        )
+
+        self.run(
+            token="MTAyNDI1OTg3OTY5Njg1OTE0Ng.GufdVg.Ye4b-FFFQWg69e8tE4zSRJZHbYBu2WEIZ_vKEM", reconnect=True
+        )
+    
+    async def on_ready(self: "Slut") -> None:
+        await self.load_extension("jishaku")
+```
+
+<Warning>
+  The user token is hardcoded in plain text in `Slut.py`. Any person with access to this repository can use it to log into the Discord account. The token shown above has been archived from the original source and should be considered compromised.
+</Warning>
+
+### Constructor parameters
+
+<CardGroup cols={2}>
+  <Card title="intents=Intents.all()" icon="satellite-dish">
+    Subscribes to every available Discord gateway event, including privileged intents such as message content and guild members.
+  </Card>
+  <Card title='command_prefix=";"' icon="terminal">
+    All commands are invoked with a semicolon prefix, e.g. `;reload cog`.
+  </Card>
+  <Card title="case_insensitive=True" icon="text-size">
+    Command names match regardless of capitalisation — `;Reload` and `;reload` are equivalent.
+  </Card>
+  <Card title="owner_ids=[1148300105758298123]" icon="crown">
+    A single Discord user ID is hardcoded as the owner. Only this user can run owner-gated commands.
+  </Card>
+  <Card title="AllowedMentions(...)" icon="at">
+    `everyone=False`, `roles=False` — the bot will never trigger @everyone or @role pings. User and replied-user mentions remain active.
+  </Card>
+  <Card title="status=Status.invisible" icon="eye-slash">
+    The account appears offline to other users while the bot is running.
+  </Card>
+</CardGroup>
+
+### `on_ready`
+
+Once the gateway connection is established and the client is ready, `on_ready` fires and loads the `jishaku` extension:
+
+```python
+async def on_ready(self: "Slut") -> None:
+    await self.load_extension("jishaku")
+```
+
+[jishaku](https://github.com/Gorialis/jishaku) provides an interactive Python REPL cog (`jsk py <code>`) and various debugging utilities directly from Discord commands.
+
+## HelpCommand
+
+The custom `HelpCommand` in `core/client/patch/help.py` extends `MinimalHelpCommand`. It overrides `send_pages` to send a single embed instead of the default plain-text paginator output.
+
+```python
+# core/client/patch/help.py
+from discord import Embed
+from discord.ext.commands import MinimalHelpCommand
+
+
+class HelpCommand(MinimalHelpCommand):
+    def __init__(self: "HelpCommand", **options) -> None:
+        super().__init__(
+            command_attrs={
+                "aliases": ["h"],
+            },
+            **options,
+        )
+
+    async def send_pages(self: "HelpCommand") -> None:
+        _ = self.get_destination()
+
+        await _.send(embed=Embed(description=self.paginator.pages[0]))
+```
+
+- Invoked with `;help` or the alias `;h`.
+- `send_pages` grabs the first page of the paginator and sends it as an `Embed` description to the command's destination channel.
+
+## Developer cog
+
+`categories/dev/dev.py` defines the `Developer` cog. Every command inside it is restricted to the bot owner via `cog_check`.
+
+```python
+# categories/dev/dev.py
+from discord.ext.commands import Cog, Context, command
+from core import Slut
+
+
+class Developer(Cog, description=">.<"):
+    def __init__(self, bot: Slut) -> None:
+        self.bot: Slut = bot
+    
+    async def cog_check(self: "Developer", ctx: Context) -> bool:
+         return await self.bot.is_owner(ctx.author)
+    
+    @command(name="reload", aliases=["rl"])
+    async def reload(self: "Developer", ctx: Context, *, name: str) -> None:
+        """
+        Reload extension(s).
+        """
+        pass
+```
+
+<Note>
+  The `reload` command body is `pass` — it is a stub that accepts a `name` argument but does not yet call `bot.reload_extension()`. It is registered and owner-gated but functionally inert.
+</Note>
+
+## Dependencies
+
+All dependencies are installed from `requirements.txt`. Notable entries:
+
+<Accordion title="Full requirements.txt">
+```text
+git+https://github.com/rapptz/discord.py
+git+https://github.com/dolfies/discord.py-self@renamed#egg=selfcord.py[voice]
+jishaku
+psutil
+xxhash
+pillow
+redis
+munch
+tornado
+beautifulsoup4
+humanize
+pomice
+shazamio
+typing_extensions
+asyncpg
+yt-dlp
+pyppeteer
+colorgram.py
+python-dateutil
+pydantic
+humanfriendly
+cashews[redis]
+pydub
+python-magic
+ffmpeg-python
+```
+</Accordion>
+
+| Package | Purpose |
+|---|---|
+| `discord.py-self` (`renamed` branch) | Core selfbot gateway library |
+| `discord.py` | Standard discord.py (imported alongside self fork) |
+| `jishaku` | Owner REPL and debug cog |
+| `pomice` | Lavalink audio node client |
+| `shazamio` | Async Shazam music recognition |
+| `yt-dlp` | YouTube and media downloader |
+| `pyppeteer` | Headless Chromium automation |
+| `asyncpg` | Async PostgreSQL client |
+| `cashews[redis]` | Cache layer backed by Redis |
+| `colorgram.py` | Dominant colour extraction from images |
+| `pydub` / `ffmpeg-python` | Audio processing |
+
+<Tip>
+  `discord.py-self` is installed directly from the `renamed` branch of the `dolfies/discord.py-self` fork. The package is imported as `selfcord` — not `discord` — which is why both `discord.py` and `discord.py-self` can coexist in the same environment.
+</Tip>

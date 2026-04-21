@@ -1,0 +1,153 @@
+---
+title: "Vanity URL sniper: real-time Discord vanity stealing"
+description: "The vanity sniper connects to the Discord gateway as a selfbot, monitors GUILD_UPDATE and GUILD_DELETE events, and immediately claims released vanity URLs."
+---
+
+The vanity sniper connects directly to Discord's WebSocket gateway as a selfbot, watches every guild the account is in for vanity URL changes or guild deletions, and the instant a URL is freed it fires a PATCH request to claim it for a designated target guild — all before any other script on the network can react.
+
+<Warning>
+  This tool operates as a Discord selfbot using a user account token, which is explicitly prohibited by [Discord's Terms of Service](https://discord.com/terms). Using it risks permanent account termination and potential legal exposure. It is documented here for archival and educational purposes only.
+</Warning>
+
+## How it works
+
+The sniper authenticates over the raw WebSocket gateway (`wss://gateway.discord.gg/?v=10&encoding=json`) rather than through discord.py or any wrapper library. After the connection is established the bot sends an IDENTIFY payload using a user token, receives the full guild list on the READY event, and then sits in a receive loop waiting for DISPATCH events.
+
+<Steps>
+  <Step title="Connect to the gateway">
+    `websockets.connect` opens a persistent connection to `wss://gateway.discord.gg/?v=10&encoding=json`.
+  </Step>
+  <Step title="Send IDENTIFY">
+    The `on_open` method immediately sends an opcode 2 IDENTIFY payload containing the user token and spoofed client properties (`os: macos`, `browser: Safari`, `device: MacBook Air`).
+  </Step>
+  <Step title="Seed the guild cache on READY">
+    When the READY event arrives, the sniper iterates `data["d"]["guilds"]` and stores any guild whose `vanity_url_code` is a string into `self.guilds`, keyed by guild ID.
+  </Step>
+  <Step title="Watch for trigger events">
+    The main loop calls `on_message` for every incoming frame and checks for two specific DISPATCH types.
+  </Step>
+  <Step title="Claim the URL">
+    When a trigger fires, `httpx.AsyncClient.patch` hits `https://discord.com/api/v10/guilds/{SNIPER_GUILD_ID}/vanity-url` with the freed code. Success and failure outcomes are both reported to Discord webhook URLs.
+  </Step>
+</Steps>
+
+## Trigger events
+
+<CardGroup cols={2}>
+  <Card title="GUILD_UPDATE" icon="arrow-rotate-right">
+    Fires when a guild modifies its settings. The sniper compares the incoming `vanity_url_code` against the cached value. If they differ, the **old** code (the one being abandoned) is claimed immediately for the target guild.
+  </Card>
+  <Card title="GUILD_DELETE" icon="trash">
+    Fires when the selfbot account is removed from a guild or when a guild is deleted outright. If the departing guild had a vanity URL cached, the sniper attempts to claim it before the URL re-enters the pool.
+  </Card>
+</CardGroup>
+
+## Configuration constants
+
+These variables are defined at the top of the file. Do not commit live values to version control.
+
+| Constant | Purpose |
+|---|---|
+| `SNIPER_GUILD_ID` | The guild that will receive the sniped vanity URL |
+| `URL_SNIPER_SELF_TOKEN` | User account token used in the PATCH Authorization header |
+| `SNIPER_SELF_TOKEN` | User account token used in the IDENTIFY payload |
+| `SUCCESS_WEBHOOK_URL` | Webhook that receives a message when a URL is claimed |
+| `ERROR_WEBHOOK_URL` | Webhook that receives error details on failed claims |
+
+## The `Sniper` class
+
+```python
+class Sniper:
+    def __init__(self):
+        self.opcodes = {
+            "DISPATCH": 0,
+            "HEARTBEAT": 1,
+            "IDENTIFY": 2,
+            "RECONNECT": 7,
+            "HELLO": 10,
+            "HEARTBEAT_ACK": 11,
+        }
+        self.interval = None
+        self.guilds = {}  # { guild_id: { "vanity_url_code": str } }
+```
+
+| Method | Role |
+|---|---|
+| `__init__` | Initialises opcode map and empty guild cache |
+| `create_payload` | Serialises a dict to a JSON string |
+| `heartbeat` | Sends an opcode 1 heartbeat frame |
+| `on_message` | Main dispatch router — handles READY, GUILD_CREATE, GUILD_UPDATE, GUILD_DELETE, RECONNECT |
+| `on_open` | Fires immediately after the socket opens; sends the IDENTIFY payload |
+| `on_close` | Shuts down the async event loop on disconnect |
+| `on_error` | Prints the error and shuts down the loop |
+| `start` | Opens the WebSocket connection and runs the receive loop |
+
+## Key code: `on_message`
+
+```python
+async def on_message(self, message):
+    data = json.loads(message)
+    if data["op"] == self.opcodes["DISPATCH"]:
+        if data["t"] == "GUILD_UPDATE":
+            guild_id = data["d"]["guild_id"]
+            vanity_url_code = data["d"]["vanity_url_code"]
+            if isinstance(self.guilds.get(guild_id), dict) and self.guilds[guild_id]["vanity_url_code"] != vanity_url_code:
+                url = f"https://discord.com/api/v10/guilds/{SNIPER_GUILD_ID}/vanity-url"
+                headers = {
+                    "Authorization": URL_SNIPER_SELF_TOKEN,
+                    "Content-Type": "application/json",
+                }
+                payload = self.create_payload({"code": self.guilds[guild_id]["vanity_url_code"]})
+                async with httpx.AsyncClient() as client:
+                    response = await client.patch(url, headers=headers, content=payload)
+                    response2 = await client.get(
+                        f'https://discord.com/api/v10/guilds/{SNIPER_GUILD_ID}',
+                        headers=headers
+                    )
+                    van = response2.json()["vanity_url_code"]
+                    if response.status_code == 200:
+                        payload = {
+                            "content": f"URL: https://discord.gg/{van} successfully received. ||@everyone||."
+                        }
+                        httpx.post(SUCCESS_WEBHOOK_URL, json=payload)
+                    else:
+                        error = response.json()
+                        payload = {"content": f"Error while sniping url: {vanity_url_code}"}
+                        httpx.post(ERROR_WEBHOOK_URL, json=payload)
+                        payload2 = {"content": json.dumps(error, indent=4)}
+                        httpx.post(ERROR_WEBHOOK_URL, json=payload2)
+                del self.guilds[guild_id]
+```
+
+## The `start` method
+
+```python
+async def start(self):
+    try:
+        async with websockets.connect("wss://gateway.discord.gg/?v=10&encoding=json") as socket:
+            self.socket = socket
+            await self.on_open(socket)
+
+            while True:
+                message = await socket.recv()
+                await self.on_message(message)
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    sniper = Sniper()
+    asyncio.run(sniper.start())
+```
+
+## `sniper.py` vs `sniper1.py`
+
+The two files are **byte-for-byte identical** — same logic, same constants, same class structure, same entry point. The duplicate exists as a second copy in the repository; there are no behavioural differences between them.
+
+## Running
+
+```bash
+python sniper.py
+```
+
+Dependencies: `httpx`, `websockets` (both installable via pip). The script has no configuration file; all values are hardcoded constants at the top of the file.

@@ -1,97 +1,75 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Skid Archive: Leaked Discord Bot Source Collection"
+description: "A public archive of Discord bot source code obtained through exploitation, covering community bots, selfbots, vanity snipers, and mass DM tools."
 ---
 
-## Setting up
+Skid Archive is a GitHub repository maintained by [cop-discord](https://github.com/cop-discord/skidarchive) that collects and documents the source code of Discord bots acquired through exploitation. The archive spans multiple categories: full-featured community bots (JavaScript and Python), Discord selfbots, vanity URL snipers, mass DM tools, and auto-PFP image-posting bots. This documentation covers the architecture, commands, and internals of each bot in the collection.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    Overview of the archive, what it contains, and how the sources were obtained.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Repository Structure" icon="folder-tree" href="/repository-structure">
+    Directory layout and per-bot folder organization across the entire repository.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Allstar Bot" icon="star" href="/bots/allstar">
+    The flagship Discord.js community bot with 100+ commands and anti-nuke protection.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Vanity Sniper" icon="bolt" href="/utilities/vanity-sniper">
+    WebSocket-based tool that automatically claims released Discord vanity URLs.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Explore the bots
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="cb0 / usebot" icon="robot" href="/bots/cb0-usebot">
+    Python community bot with music, voice, auto-posting, and SQLite persistence.
+  </Card>
+  <Card title="Prada" icon="shield" href="/bots/prada">
+    Modular Python bot using cog architecture with blacklist and whitelist support.
+  </Card>
+  <Card title="Belongs" icon="layer-group" href="/bots/belongs">
+    Python selfbot framework with category-based cog loading and custom prefix.
+  </Card>
+  <Card title="Cut" icon="scissors" href="/bots/cut">
+    Multi-tool Python bot with TikTok API integration and token management.
+  </Card>
+  <Card title="Harm" icon="triangle-exclamation" href="/bots/harm">
+    Python bot with profile picture automation and environment-variable configuration.
+  </Card>
+  <Card title="Violated" icon="circle-xmark" href="/bots/violated">
+    Lightweight Python bot with web server keep-alive and config-driven setup.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Explore the utilities
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Mass DM Bots" icon="envelope-open-text" href="/utilities/massdm-bots">
+    Python bots that send DMs to new server members across multiple guilds.
+  </Card>
+  <Card title="Auto-PFP" icon="image" href="/utilities/auto-pfp">
+    Timed image-posting bots that push categorized images to Discord channels.
+  </Card>
+  <Card title="API Server" icon="server" href="/utilities/api-server">
+    Express.js server handling Discord interaction callbacks on port 5000.
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Code reference
+
+<CardGroup cols={2}>
+  <Card title="Allstar Commands" icon="terminal" href="/reference/allstar-commands">
+    Full command listing: moderation, server management, fun, and utility commands.
+  </Card>
+  <Card title="Allstar Anti-Nuke" icon="shield-halved" href="/reference/allstar-antinuke">
+    Anti-nuke system internals: event handlers, trusted user lists, and protections.
+  </Card>
+  <Card title="Allstar Events" icon="calendar-check" href="/reference/allstar-events">
+    Discord event handlers: welcome/leave messages, starboard, and audit logging.
+  </Card>
+  <Card title="Vanity Sniper Internals" icon="code" href="/reference/vanity-sniper-internals">
+    WebSocket protocol, GUILD_UPDATE dispatch handling, and snipe logic.
+  </Card>
+</CardGroup>

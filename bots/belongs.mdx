@@ -1,0 +1,196 @@
+---
+title: "Belongs: Python selfbot with category-based cog loading"
+description: "Belongs is a Python Discord selfbot built on discord.py with category-based cog architecture, custom prefix configuration, and owner-restricted commands."
+---
+
+Belongs is a Python Discord bot that shares its codebase structure with [Prada](/bots/prada). Both use the same `core/slut.py` scaffolding and `categories/` cog layout. The key distinguishing detail is that `requirements.txt` lists `dolfies/discord.py-self` (installed as `selfcord.py`) alongside the upstream `discord.py`, indicating the bot is intended to run as a selfbot — automating a real Discord user account rather than a bot application.
+
+<Warning>
+  Running a selfbot violates Discord's Terms of Service. Automating a regular user account can result in permanent account termination. Additionally, `config.py` contains a hardcoded user/bot token that should be treated as compromised and immediately invalidated.
+</Warning>
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="discord.py + discord.py-self" icon="python">
+    Both `git+https://github.com/rapptz/discord.py` and `dolfies/discord.py-self@renamed` are in `requirements.txt`. The selfcord fork enables user-account login patterns not supported by the standard bot library.
+  </Card>
+  <Card title="redis + asyncpg" icon="database">
+    `redis` / `cashews[redis]` for caching; `asyncpg` for optional PostgreSQL connectivity.
+  </Card>
+  <Card title="pomice + yt-dlp" icon="music">
+    Lavalink music via `pomice`; direct media extraction via `yt-dlp`.
+  </Card>
+  <Card title="jishaku" icon="terminal">
+    Loaded at `on_ready` for owner REPL and live code evaluation.
+  </Card>
+</CardGroup>
+
+The full dependency list mirrors Prada exactly: `psutil`, `xxhash`, `pillow`, `munch`, `tornado`, `beautifulsoup4`, `humanize`, `shazamio`, `typing_extensions`, `pyppeteer`, `colorgram.py`, `python-dateutil`, `pydantic`, `humanfriendly`, `cashews[redis]`, `pydub`, `python-magic`, `ffmpeg-python`.
+
+## Directory structure
+
+```
+belongs/
+├── main.py              # Entry point — instantiates Slut()
+├── config.py            # token, owner_ids
+├── requirements.txt
+├── core/
+│   ├── __init__.py
+│   ├── slut.py          # Bot subclass (Slut)
+│   └── client/          # HelpCommand, logging setup
+└── categories/
+    └── welcome/
+        └── welcome.py   # on_member_join listener
+```
+
+<Note>
+  Belongs ships with only one category subfolder (`welcome/`), compared to Prada's eleven. The cog-loading mechanism is identical — it will automatically pick up any new subdirectory added to `categories/`.
+</Note>
+
+## Entry point
+
+```python
+from core import Slut
+
+if __name__ == "__main__":
+    Slut()
+```
+
+`main.py` is identical to Prada's. `Slut.__init__` calls `self.run(token=config.token)` synchronously before returning.
+
+## Bot configuration (`core/slut.py`)
+
+Belongs uses a plain `commands.Bot` (not `AutoShardedBot`) and starts with `status=Status.invisible`:
+
+```python
+class Slut(Bot):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(
+            owner_ids=config.owner_ids,
+            intents=Intents.all(),
+            command_prefix=self.get_prefix,
+            help_command=None,
+            case_insensitive=True,
+            strip_after_prefix=True,
+            allowed_mentions=AllowedMentions(
+                replied_user=False,
+                everyone=False,
+                roles=False,
+                users=True,
+            ),
+            status=Status.invisible,
+            description=">w<",
+        )
+        self.run(token=config.token)
+```
+
+Key differences from Prada:
+- Single process (not `AutoShardedBot`)
+- `status=Status.invisible` — the account appears offline
+- `help_command=None` — no built-in help command
+
+## `config.py`
+
+```python
+token = "<USER_OR_BOT_TOKEN>"
+owner_ids = [1040008141301088276]
+```
+
+Only a single owner ID is configured, compared to Prada's three. Owner ID checks gate access to privileged commands loaded from cogs.
+
+## Prefix
+
+The prefix is resolved via `when_mentioned_or(",")` — either a direct mention of the account or a leading `,` character triggers command dispatch:
+
+```python
+async def get_prefix(self: "Slut", message: Message) -> List[str]:
+    return when_mentioned_or(",")(self, message)
+```
+
+## Cog loading
+
+Cog discovery iterates `./categories/` subdirectories at `on_connect`, identical to Prada:
+
+```python
+async def load_cogs(self):
+    for category_folder in os.listdir("./categories"):
+        category_path = os.path.join("./categories", category_folder)
+        if os.path.isdir(category_path):
+            for file in os.listdir(category_path):
+                if file.endswith(".py"):
+                    cog_name = f"categories.{category_folder}.{file[:-3]}"
+                    await self.load_extension(cog_name)
+```
+
+`jishaku` is loaded separately in `on_ready`.
+
+## Presence on startup
+
+`on_ready` sets a streaming activity pointing to `discord.gg/belongs`:
+
+```python
+async def on_ready(self):
+    await self.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            name="discord.gg/belongs",
+            url="https://twitch.tv/belongs",
+            type=discord.ActivityType.streaming,
+        ),
+    )
+    await self.load_extension("jishaku")
+```
+
+## Rate limiting
+
+The same 3-per-3-second channel and user cooldown applied in Prada is present here:
+
+```python
+self.channel_cd = CooldownMapping.from_cooldown(3, 3, BucketType.channel)
+self.user_cd    = CooldownMapping.from_cooldown(3, 3, BucketType.user)
+```
+
+Commands are only dispatched if neither bucket is rate-limited.
+
+## Welcome cog (`categories/welcome/welcome.py`)
+
+The sole shipped cog listens on `on_member_join` and posts a fixed welcome embed to a hardcoded channel ID (`1169428737088028732`):
+
+```python
+@Cog.listener(name="on_member_join")
+async def MemberJoin(self, member):
+    channel = self.bot.get_channel(1169428737088028732)
+    await channel.send(
+        content=f"{member.mention}",
+        embeds=[
+            discord.Embed(
+                title=member,
+                description=(
+                    f"welcome to {guild.name}\n"
+                    "Boost, inv & rep for perks\n"
+                    "main vc's for higher roles\n"
+                    "join https://discord.gg/belongs"
+                ),
+                color=0x34343C,
+            ).set_thumbnail(url=member.display_avatar.url)
+        ],
+    )
+```
+
+The channel ID and welcome text are not configurable through a command — they are hardcoded in the cog file.
+
+## Running the bot
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Edit config.py with your token and owner ID
+# Then start:
+python main.py
+```
+
+<Tip>
+  To add new functionality, create a subdirectory under `categories/` containing an `__init__.py` and a `<name>.py` file that defines a `Cog` subclass. The loader will pick it up automatically on next start without any changes to `main.py` or `core/slut.py`.
+</Tip>

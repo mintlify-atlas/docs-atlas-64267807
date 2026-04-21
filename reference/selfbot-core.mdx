@@ -1,0 +1,280 @@
+---
+title: "Selfbot core: Slut class, cog loader, and dev commands"
+description: "Deep dive into the selfbot's Slut class constructor, the HelpCommand patch, and the owner-only Developer cog with its reload command implementation."
+---
+
+This page is a line-by-line technical reference for the three files that form the selfbot's core: `core/Slut.py`, `core/client/patch/help.py`, and `categories/dev/dev.py`. It covers every constructor argument, the startup sequence, the help command override, and the owner-only developer cog.
+
+## Startup sequence
+
+<Steps>
+  <Step title="main.py calls Slut()">
+    The entry point `main/main.py` imports `Slut` from `core` and calls the constructor with no arguments.
+    ```python
+    from core import Slut
+
+    if __name__ == "__main__":
+        Slut()
+    ```
+  </Step>
+  <Step title="Slut.__init__ configures and calls self.run()">
+    The constructor passes all options to `discord.ext.commands.Bot.__init__`, then immediately calls `self.run(token=..., reconnect=True)`. This is a blocking call — it starts the event loop and connects to the Discord gateway.
+  </Step>
+  <Step title="on_ready fires and loads jishaku">
+    Once the gateway handshake completes, Discord dispatches the `READY` event. The `on_ready` coroutine loads the `jishaku` extension, making REPL commands available.
+  </Step>
+</Steps>
+
+## `Slut` class — full source
+
+```python
+# core/Slut.py
+from discord import Intents, Status, AllowedMentions
+from discord.ext.commands import Bot, Cog
+
+from .client.patch.help import HelpCommand
+
+
+class Slut(Bot):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(
+            intents=Intents.all(),
+            command_prefix=";",
+            case_insensitive=True,
+            owner_ids=[1148300105758298123],
+            allowed_mentions=AllowedMentions(
+                everyone=False,
+                roles=False,
+                users=True,
+                replied_user=True,
+            ),
+            help_command=HelpCommand(),
+            status=Status.invisible,
+            *args,
+            **kwargs
+        )
+
+        self.run(
+            token="MTAyNDI1OTg3OTY5Njg1OTE0Ng.GufdVg.Ye4b-FFFQWg69e8tE4zSRJZHbYBu2WEIZ_vKEM", reconnect=True
+        )
+    
+    async def on_ready(self: "Slut") -> None:
+        await self.load_extension("jishaku")
+```
+
+### `__init__` parameters
+
+#### `intents=Intents.all()`
+
+Subscribes to the complete set of Discord gateway intents, including the **privileged** intents:
+
+- `GUILD_MEMBERS` — member join/leave/update events
+- `GUILD_PRESENCES` — presence and status updates
+- `MESSAGE_CONTENT` — access to message body text
+
+For a normal bot application these privileged intents require whitelisting in the Discord Developer Portal. Because this is a selfbot running on a user account, there is no portal — the user account receives all events automatically.
+
+#### `command_prefix=";"`
+
+The bot responds to messages that begin with `;`. The prefix is a single semicolon, so:
+
+```
+;help        → triggers HelpCommand
+;rl cog_name → triggers Developer.reload
+```
+
+#### `case_insensitive=True`
+
+Command lookup is case-insensitive. `;HELP`, `;Help`, and `;help` all resolve to the same command object.
+
+#### `owner_ids=[1148300105758298123]`
+
+A Python list containing a single Discord snowflake ID. `discord.py-self`'s `Bot.is_owner()` checks this list, so any `cog_check` or `@commands.is_owner()` decorator will allow only this user.
+
+<Note>
+  `owner_ids` is a list, not a scalar. Multiple owners could be added by appending additional snowflakes, but the current codebase has exactly one.
+</Note>
+
+#### `allowed_mentions=AllowedMentions(...)`
+
+Controls which mention types the bot is permitted to trigger when it sends a message.
+
+| Parameter | Value | Effect |
+|---|---|---|
+| `everyone` | `False` | `@everyone` and `@here` in bot messages are silenced |
+| `roles` | `False` | `@RoleName` mentions are silenced |
+| `users` | `True` | `@Username` mentions are active |
+| `replied_user` | `True` | Replying to a message will ping the reply target |
+
+#### `help_command=HelpCommand()`
+
+Replaces the default `DefaultHelpCommand` with the project's custom `HelpCommand` (documented below). The `;help` invocation is handled by this instance.
+
+#### `status=Status.invisible`
+
+Sets the account's presence to **invisible** (appears offline) from the moment the gateway connects. Other users in shared servers see the account as offline even while commands are actively being processed.
+
+### `self.run(token=..., reconnect=True)`
+
+```python
+self.run(
+    token="MTAyNDI1OTg3OTY5Njg1OTE0Ng.GufdVg.Ye4b-FFFQWg69e8tE4zSRJZHbYBu2WEIZ_vKEM",
+    reconnect=True
+)
+```
+
+`reconnect=True` instructs the client to automatically attempt to reconnect if the gateway connection is dropped, instead of raising an exception. The token is a **user token** — it does not carry a `Bot ` prefix — and is hardcoded in plain text.
+
+<Warning>
+  The user token is embedded directly in source code. Anyone with read access to this repository can use it to authenticate as the account owner, send messages, read DMs, join servers, and perform any action the user account can perform. The token shown above is from the archived source and should be considered compromised.
+</Warning>
+
+### `on_ready`
+
+```python
+async def on_ready(self: "Slut") -> None:
+    await self.load_extension("jishaku")
+```
+
+This is the only event handler defined on `Slut`. It loads `jishaku` after the gateway READY event, which registers commands like:
+
+- `jsk py <expression>` — evaluate a Python expression
+- `jsk sh <command>` — run a shell command
+- `jsk source <command>` — view source of a command
+
+No logging or status message is printed on ready.
+
+---
+
+## `HelpCommand` — full source
+
+```python
+# core/client/patch/help.py
+from discord import Embed
+from discord.ext.commands import MinimalHelpCommand
+
+
+class HelpCommand(MinimalHelpCommand):
+    def __init__(self: "HelpCommand", **options) -> None:
+        super().__init__(
+            command_attrs={
+                "aliases": ["h"],
+            },
+            **options,
+        )
+
+    async def send_pages(self: "HelpCommand") -> None:
+        _ = self.get_destination()
+
+        await _.send(embed=Embed(description=self.paginator.pages[0]))
+```
+
+### Inheritance chain
+
+```
+commands.HelpCommand
+  └── commands.MinimalHelpCommand
+        └── HelpCommand  (core/client/patch/help.py)
+```
+
+`MinimalHelpCommand` produces a simple, compact help output using an internal `Paginator`. The custom subclass intercepts `send_pages` to deliver that content as an `Embed` instead of plain text.
+
+### `command_attrs`
+
+Passing `command_attrs={"aliases": ["h"]}` to the parent constructor registers the help command under both `;help` and `;h`. This is the standard `discord.py` mechanism for setting attributes on the automatically created help command object.
+
+### `send_pages`
+
+`MinimalHelpCommand` calls `send_pages` when it has finished building the output. The default implementation sends each paginator page as a plain-text message. The override:
+
+1. Calls `self.get_destination()` to determine the channel to send to (typically the invocation channel).
+2. Takes `self.paginator.pages[0]` — the first (and usually only) page of formatted help text.
+3. Wraps it in a `discord.Embed` with that text as the `description`.
+4. Sends the embed.
+
+<Note>
+  Only `pages[0]` is sent. If the help text is long enough to produce multiple pages, pages beyond the first are silently discarded.
+</Note>
+
+---
+
+## `Developer` cog — full source
+
+```python
+# categories/dev/dev.py
+from typing import Type
+
+from discord import Message
+from discord.ext.commands import Cog, Context, command
+
+from core import Slut
+
+
+class Developer(Cog, description=">.<"):
+    def __init__(self, bot: Slut) -> None:
+        self.bot: Slut = bot
+    
+    async def cog_check(self: "Developer", ctx: Context) -> bool:
+         return await self.bot.is_owner(ctx.author)
+    
+    @command(name="reload", aliases=["rl"])
+    async def reload(self: "Developer", ctx: Context, *, name: str) -> None:
+        """
+        Reload extension(s).
+        """
+
+        pass
+```
+
+### `cog_check`
+
+```python
+async def cog_check(self: "Developer", ctx: Context) -> bool:
+     return await self.bot.is_owner(ctx.author)
+```
+
+`cog_check` is a special `discord.py` hook that runs before **any** command in the cog. If it returns `False` (or raises), the command is not executed. Here it delegates to `Bot.is_owner()`, which checks `ctx.author.id` against the `owner_ids` list set in `Slut.__init__`. Every command in the `Developer` cog is therefore restricted to user ID `1148300105758298123`.
+
+### `reload` command
+
+```python
+@command(name="reload", aliases=["rl"])
+async def reload(self: "Developer", ctx: Context, *, name: str) -> None:
+    """
+    Reload extension(s).
+    """
+    pass
+```
+
+<Tabs>
+  <Tab title="Invocation">
+    ```
+    ;reload <name>
+    ;rl <name>
+    ```
+    The `*, name: str` signature captures everything after the command name as a single string argument, allowing extension names with dots (e.g. `categories.dev.dev`).
+  </Tab>
+  <Tab title="Implementation status">
+    The command body is `pass`. It is registered and owner-gated but does not call `bot.reload_extension()` or any other action. It is a stub — the command exists and will be acknowledged by the command framework, but nothing happens when invoked.
+  </Tab>
+</Tabs>
+
+### Cog description
+
+`Cog, description=">.<"` sets the cog's description string to `>.<`. This appears in the `;help` output under the cog name.
+
+---
+
+## Module dependency graph
+
+```
+main.py
+  └── core/__init__.py  (exposes Slut)
+        └── core/Slut.py
+              └── core/client/patch/help.py  (HelpCommand)
+
+categories/dev/dev.py
+  └── core/__init__.py  (imports Slut for type annotation)
+```
+
+The `Developer` cog must be loaded separately (e.g. via `load_extension`) — it is not auto-loaded in `on_ready`. The `on_ready` handler only loads `jishaku`.

@@ -1,0 +1,232 @@
+---
+title: "Cut: Python bot with TikTok API and token management"
+description: "Cut is a Python Discord bot with TikTok API integration, multi-token management via tokens.txt, cog-based commands, and a custom event handler system."
+---
+
+Cut is a full-featured `commands.AutoShardedBot` subclass named `greed`, running under the identity `*cut*` and competing at `tear.lol`. It combines a deep PostgreSQL-backed feature set — moderation, leveling, giveaways, economy, voicemaster, tickets, and more — with a custom TikTok API client, a rotating proxy layer, and an 11-token pool read from a flat `tokens.txt` file at startup.
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="discord.py (git)" icon="code">
+    Pinned to a specific commit of Rapptz/discord.py; also pulls `selfcord.py` for self-bot identity payload spoofing.
+  </Card>
+  <Card title="asyncpg + PostgreSQL" icon="database">
+    All persistent state (prefixes, warns, giveaways, leveling, economy, etc.) lives in a Supabase-hosted PostgreSQL pool created via `asyncpg.create_pool`.
+  </Card>
+  <Card title="pomice" icon="music">
+    Lavalink-based music playback. `Music(self).start_node()` is called on `on_ready`.
+  </Card>
+  <Card title="jishaku" icon="terminal">
+    Owner-only REPL; hidden from help, DM tracebacks disabled, paginator forced, retain mode on.
+  </Card>
+  <Card title="aiohttp + orjson" icon="globe">
+    Custom `HTTP` class in `tools/ext.py` handles all outbound requests with chunked downloading and a 500 MB cap.
+  </Card>
+  <Card title="humanfriendly, Pillow, yt-dlp" icon="wrench">
+    Utility libraries for time formatting, image processing, and media downloading.
+  </Card>
+</CardGroup>
+
+## TikTok API integration (`ttapi/`)
+
+The `ttapi/` package is a custom async TikTok client — not a third-party wrapper — built on `aiohttp`.
+
+<Accordion title="TikTokApi class structure">
+
+```python
+# ttapi/tiktok_api.py
+class TikTokApi:
+    def __init__(self, headers={}, proxies={}, debug=False, **kwargs):
+        self.headers = {"user-agent": "okhttp/3.10.0.1"}
+        if kwargs.get("session"):
+            self.headers["cookie"] = "sessionid=" + kwargs.get("session")
+        self.region = kwargs.get("region") if kwargs.get("region") else "US"
+        self.session = aiohttp.ClientSession()
+
+        self.debug = Debug(debug)
+        self.video = Video(self)
+        self.feed = Feed(self)
+        self.music = Music(self)
+        self.comment = Comment(self)
+        self.user = User(self)
+```
+
+</Accordion>
+
+The package exposes five sub-clients attached to the main `TikTokApi` instance:
+
+| Sub-client | Module | Purpose |
+|---|---|---|
+| `video` | `ttapi/video.py` | Download videos (watermark / no-watermark), parse video data from URL or ID |
+| `feed` | `ttapi/feed.py` | Feed-level queries |
+| `music` | `ttapi/music.py` | Music/sound metadata |
+| `comment` | `ttapi/comment.py` | Comment data |
+| `user` | `ttapi/user.py` | User profile queries |
+
+Video parsing hits `https://api2-19-h2.musical.ly/aweme/v1/aweme/detail/` directly and handles mobile share URLs, full website URLs, and raw video IDs. The formatter extracts author info, download URLs (both watermark variants), stats, and music metadata.
+
+<Note>
+`msToken` is an optional init parameter — required for some endpoints — and expires after 24 hours per the inline docstring.
+</Note>
+
+## Token management (`tokens.txt`)
+
+`tokens.txt` holds 11 Discord bot tokens, one per line. The bot reads from this file to support multi-token operation. The active token used to call `bot.run(token)` is a separate hardcoded value in `main.py:725`.
+
+```text
+# tokens.txt — 11 entries, one token per line
+MTEyOTE3OTA4NjU1Njc2MjExMg...
+Mzk5MDA4NTU0MDM3Njc0MDA3...
+MTA0MDAwODE0MTMwMTA4ODI3Ng...
+# ... 8 more
+```
+
+## Cog structure (`cogs/`)
+
+Cut loads all 28 cogs dynamically via `StartUp.loadcogs` in `tools/utils.py`, which iterates `./cogs/*.py` and `./events/*.py` and calls `load_extension` on each.
+
+<CardGroup cols={3}>
+  <Card title="Moderation">
+    `moderation.py` — bans, kicks, warns, jail, hardban, force-nick
+  </Card>
+  <Card title="Anti-abuse">
+    `antinuke.py`, `antiraid.py`, `automod.py` — threshold-based punishment system with whitelist table
+  </Card>
+  <Card title="Leveling">
+    `Leveling.py` — XP, level roles, configurable destination channel
+  </Card>
+  <Card title="Economy">
+    `economy.py` — cash/bank balances, dice, daily, rob commands; `pot` and `joint` tables
+  </Card>
+  <Card title="Giveaway">
+    `giveaway.py` + `gw_loop` task — 5-second polling loop that resolves finished giveaways and picks winners
+  </Card>
+  <Card title="VoiceMaster">
+    `voicemaster.py` — persistent button views (`vmbuttons`) registered at startup
+  </Card>
+  <Card title="Music">
+    `music.py` — Lavalink integration via pomice
+  </Card>
+  <Card title="Tickets">
+    `ticket.py` — `CreateTicket`/`DeleteTicket` persistent views, topic system
+  </Card>
+  <Card title="AutoPFP">
+    `events.py` (via `autopfp` task) — posts random profile pictures every minute to configured channels
+  </Card>
+</CardGroup>
+
+Additional cogs: `auth`, `boosters`, `chat`, `config`, `donor`, `emoji`, `fun`, `greet`, `guild`, `info`, `joindm`, `nsfw`, `owner`, `press`, `reactionrole`, `slash`, `utility`.
+
+## Event handler system (`events/` + `handlers/`)
+
+The `events/` directory is loaded as a separate extension group, giving events their own lifecycle independent of cogs:
+
+- `events/member.py` — member join/leave handlers
+- `events/messages.py` — message event processing
+- `events/reactions.py` — reaction event handlers
+- `events/users.py` — user update events
+
+The `handlers/` directory provides shared data providers:
+
+- `handlers/pfps.py` — `PFPS` class with hardcoded lists for `female`, `male`, `anime`, `female_gif`, `male_gif`, `anime_gif`, and `banner` categories
+- `handlers/lastfmhandler.py` — Last.fm API wrapper
+- `handlers/userhandler.py` — user data utilities
+
+The `autopfp` background task (runs every minute) and `counter_update` task (every 10 minutes) are defined directly in `main.py` and started from `on_ready`.
+
+## Tools (`tools/`)
+
+<Tabs>
+  <Tab title="tools/ext.py">
+
+`HTTP` — async HTTP client with chunked download, `_dl` capped at 500 MB, and optional proxy rotation from `PROXIES` env var:
+
+```python
+async def _dl(self, url, ...) -> bytes:
+    total_size = 0
+    data = b""
+    async with aiohttp.ClientSession(...) as session:
+        async with session.get(url, ...) as response:
+            while True:
+                chunk = await response.content.read(4 * 1024)
+                data += chunk
+                total_size += len(chunk)
+                if not chunk:
+                    break
+                if total_size > 500_000_000:
+                    return None
+            return data
+```
+
+`Client` — bot-aware helper that normalises `send_success`, `send_error`, and `send_warning` for both `commands.Context` and `discord.Interaction`.
+
+  </Tab>
+  <Tab title="tools/utils.py">
+
+`EmbedBuilder` — parses a `$v`-delimited embed script string into `(content, embed, view)`. Supports `title:`, `description:`, `color:`, `image:`, `thumbnail:`, `author:`, `footer:`, `button:` tokens with `&&`-separated sub-fields.
+
+`Paginator` — `discord.ui.View` with left/stop/right buttons. Authors-only navigation; disables all buttons on timeout.
+
+`StartUp` — handles `DiscordWebSocket.identify` override (spoofs `$browser: "Discord web"`) and the dynamic cog/event loader.
+
+`create_db` — idempotent schema bootstrap; creates ~40 tables including `cmderror`, `giveaway`, `levels`, `economy`, `autopfp`, `antinuke`, `whitelist`, and more.
+
+  </Tab>
+  <Tab title="tools/checks.py / emojis.py / paginator.py">
+
+`checks.py` — permission and role hierarchy guards.
+
+`emojis.py` — centralised emoji constant definitions.
+
+`paginator.py` — standalone paginator utilities (complement to the `Paginator` view in `utils.py`).
+
+  </Tab>
+</Tabs>
+
+## Bot startup sequence
+
+```python
+# main.py — greed.setup_hook()
+async def setup_hook(self) -> None:
+    self.session = HTTP()
+    bot.loop.create_task(bot.create_db_pool())
+    await self.load_extension("jishaku")
+    self.add_view(vmbuttons())      # persistent VoiceMaster buttons
+    self.add_view(CreateTicket())   # persistent ticket create button
+    self.add_view(DeleteTicket())   # persistent ticket delete button
+    bot.loop.create_task(StartUp.startup(bot))  # syncs app commands
+
+# on_ready fires after connection:
+async def on_ready(self):
+    await Music(self).start_node()
+    await create_db(self)           # bootstraps all tables
+    if self.cogs_loaded == False:
+        await StartUp.loadcogs(self)
+    counter_update.start(bot)       # every 10 minutes
+    autopfp.start(bot)              # every 1 minute
+    gw_loop.start(bot)              # every 5 seconds
+```
+
+<Warning>
+The database password and bot token are hardcoded in plaintext in `main.py`. These credentials are already exposed in the archive and should be considered fully compromised.
+</Warning>
+
+## Custom `Context` class
+
+`greed` overrides `get_context` to return a `Context` subclass that adds:
+
+- `send_success`, `send_error`, `send_warning`, `warn`, `send_neutral` — all embed-reply wrappers using `bot.color` (`0x2B2D31`)
+- `send_nonefound` — prepends a 🔎 emoji to the message
+- `cmdhelp()` — renders a command's description, usage, aliases, and category into an embed
+- `create_pages()` — paginates a group command's subcommands
+- `find_role(name)` — fuzzy role lookup by partial name match
+- `paginator(embeds)` — bypasses pagination for single-embed results, otherwise invokes the `Paginator` view
+
+## Global checks
+
+Three bot-level checks are registered via `@bot.check`:
+
+1. **`cooldown_check`** — global 2-per-3s cooldown per member
+2. **`is_chunked`** — ensures guild member cache is populated before any command runs
+3. **`disabled_command`** — queries `disablecommand` table; blocks execution and warns if the command is disabled in that guild

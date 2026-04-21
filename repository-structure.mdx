@@ -1,0 +1,78 @@
+---
+title: "Skid Archive: directory layout of all 20 bot folders"
+description: "Each folder in Skid Archive contains a separate bot or utility. Learn what lives in each directory and what language and framework it uses."
+---
+
+The Skid Archive repository is organized as a flat collection of top-level directories. Each directory is a self-contained bot or utility, captured as-is from the source. There is no shared library or common framework tying them together — each folder stands alone.
+
+## Top-level directory listing
+
+```text
+skidarchive/
+├── allstar/
+├── api/
+├── belongs/
+├── blair/
+├── cb0/
+├── cut/
+├── harm/
+├── honda/
+├── kyo/
+├── main/
+├── massdm-bots/
+├── mobile-status/
+├── prada/
+├── saint/
+├── saith/
+├── silja_autopfp/
+├── use/
+├── vanity-sniper/
+├── violated/
+└── yeat/
+```
+
+## Folder reference
+
+| Folder | Language | Framework | Description |
+|---|---|---|---|
+| `allstar/` | JavaScript | Discord.js | Full community bot with 100+ commands, slash commands, and MariaDB storage |
+| `api/` | JavaScript | Express.js | Discord interaction webhook handler, serves on port 5000 |
+| `belongs/` | Python | discord.py | Selfbot with category-based cog architecture and custom prefix |
+| `blair/` | — | — | Empty directory |
+| `cb0/` | Python | discord.py | Community bot with music, auto-posting, and SQLite (same source as `use/`) |
+| `cut/` | Python | discord.py | Multi-tool bot with TikTok API integration and token management |
+| `harm/` | Python | discord.py | Bot with auto-PFP automation, configured via `.env` |
+| `honda/` | Python | discord.py | Community bot, similar structure to `cb0/` and `use/` |
+| `kyo/` | — | — | Empty directory |
+| `main/` | Python | discord.py-self | Selfbot with prefix `;` and jishaku extension for runtime evaluation |
+| `massdm-bots/` | Python | discord.py | Bots that DM new members across multiple guilds |
+| `mobile-status/` | Python | — | Mobile status spoofing tool |
+| `prada/` | Python | discord.py | Modular bot with blacklist and whitelist JSON configs |
+| `saint/` | Python | discord.py | Partial bot source |
+| `saith/` | Python | discord.py | Partial bot source |
+| `silja_autopfp/` | Python | — | Auto-PFP bot that posts images via the Discord CDN |
+| `use/` | Python | discord.py | Usebot source with SQLite, music, and auto-posting |
+| `vanity-sniper/` | Python | — | WebSocket-based Discord vanity URL sniper |
+| `violated/` | Python | discord.py | Lightweight bot with web server keep-alive |
+| `yeat/` | Python | — | Auto-PFP bot with image upload to Discord CDN |
+
+<Note>
+  `blair/` and `kyo/` are empty directories. They appear in the repository but contain no source files.
+</Note>
+
+## Language breakdown
+
+The collection is predominantly Python. Only two folders use JavaScript:
+
+- **JavaScript** — `allstar/` (Discord.js), `api/` (Express.js)
+- **Python** — all remaining 16 non-empty directories
+
+Within Python, most bots use `discord.py`. The exception is `main/`, which uses `discord.py-self` — the selfbot fork that authenticates as a regular user account rather than a bot token.
+
+## Related pages
+
+For a deeper look at specific bots and utilities, see the Bots and Utilities sections in the sidebar, or start with the most complete entry in the archive:
+
+- [Allstar bot](/bots/allstar) — the most fully featured JavaScript bot in the collection
+- [Vanity sniper](/utilities/vanity-sniper) — the most self-contained Python utility
+- [Mass DM bots](/utilities/massdm-bots) — multi-guild DM automation

@@ -1,0 +1,254 @@
+---
+title: "Harm: Python bot with auto-PFP and .env configuration"
+description: "Harm is a Python Discord bot with automated profile picture features, environment variable configuration via .env, and a cog-based command structure."
+---
+
+Harm is a `commands.AutoShardedBot` subclass (`DiscordBot`) whose entire startup is delegated to `tools/bot.py` — `main.py` is just four lines. The bot's defining feature is `autopfp`: a `@tasks.loop(minutes=1)` that fires webhooks into configured channels with randomly selected profile pictures sourced from six flat `.txt` files in the `pfps/` directory. Configuration is kept out of source code via `python-dotenv`, and the gateway identify payload is patched at module level to present as `Discord iOS`.
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="discord.py" icon="code">
+    Standard `discord.py` install (unpinned); also uses `discord_paginator` from a custom git fork for button-nav pagination.
+  </Card>
+  <Card title="asyncpg + PostgreSQL" icon="database">
+    Connects to a local PostgreSQL instance (`localhost:5432`, database `postgres`). Pool created in `setup_hook`.
+  </Card>
+  <Card title="python-dotenv" icon="lock">
+    All secrets loaded from `.env` via `dotenv.load_dotenv(verbose=True)` at import time in `tools/bot.py`.
+  </Card>
+  <Card title="jishaku" icon="terminal">
+    Loaded first in `load_cogs()`; hidden, paginator forced, retain mode on, DM tracebacks off.
+  </Card>
+  <Card title="humanize" icon="clock">
+    `uptime` property returns `humanize.precisedelta(self.started, format="%0.0f")`.
+  </Card>
+  <Card title="openai + tiktoken" icon="sparkles">
+    Listed in `req.txt`; suggests AI-assisted chat features in `cogs/wtv.py` or elsewhere.
+  </Card>
+</CardGroup>
+
+Additional dependencies from `req.txt`: `aiosqlite`, `pymongo`, `pyfiglet`, `colorama`, `psutil`, `wordcloud`, `yarl`, `bs4`, `deep_translator`, `arrow`, `google-cloud-dialogflow`, `discordutils`, `topggpy`, `colorthief`.
+
+## `.env` configuration
+
+<Note>
+Variable names are listed below. No values are shown — the file is loaded at runtime and never checked into application logic directly.
+</Note>
+
+| Variable | Purpose |
+|---|---|
+| `token` | Discord bot token; consumed by `os.environ['token']` in `DiscordBot.run()` |
+| `JISHAKU_HIDE` | Hides jishaku commands from help |
+| `JISHAKU_FORCE_PAGINATOR` | Forces paginator output in jishaku |
+| `JISHAKU_RETAIN` | Retains REPL variables between invocations |
+| `JISHAKU_NO_DM_TRACEBACK` | Suppresses DM tracebacks from jishaku |
+| `JISHAKU_NO_UNDERSCORE` | Removes underscore prefix requirement from jishaku commands |
+
+## Bot class (`tools/bot.py`)
+
+```python
+class DiscordBot(commands.AutoShardedBot):
+    def __init__(self):
+        super().__init__(
+            command_prefix=commands.when_mentioned_or("$"),
+            intents=discord.Intents.all(),
+            owner_ids=[1148300105758298123, 371224177186963460],
+            member_cache=discord.MemberCacheFlags(voice=True, joined=True),
+            case_insensitive=True,
+            help_command=HarmHelp(),
+            allowed_mentions=discord.AllowedMentions(
+                everyone=False, roles=False, replied_user=False
+            )
+        )
+        self.color = 0x2f3136
+        self.pfps = {
+            'male_png':   open('./pfps/male_pfps.txt').read().splitlines(),
+            'female_png': open('./pfps/female_pfps.txt').read().splitlines(),
+            'anime_png':  open('./pfps/anime_pfps.txt').read().splitlines(),
+            'male_gif':   open('./pfps/male_gifs.txt').read().splitlines(),
+            'female_gif': open('./pfps/female_gifs.txt').read().splitlines(),
+            'anime_gif':  open('./pfps/anime_gifs.txt').read().splitlines(),
+        }
+```
+
+The six `.txt` files are read and cached on `__init__` into `self.pfps`, keyed by `{genre}_{format}`. The key format mirrors the `genre` column stored in the `autopfp` database table.
+
+The `run()` method overrides the default to pass `reconnect=True` and reads the token from `os.environ['token']` instead of accepting it as a parameter.
+
+## iOS identify patch
+
+At the bottom of `tools/bot.py`, the WebSocket identify payload is monkey-patched at module load time:
+
+```python
+async def mobile(self):
+    payload = {
+        'op': self.IDENTIFY,
+        'd': {
+            'token': self.token,
+            'properties': {
+                '$os': sys.platform,
+                '$browser': 'Discord iOS',   # <-- presents as mobile
+                '$device': 'discord.py',
+                ...
+            },
+            ...
+        }
+    }
+    await self.send_as_json(payload)
+
+discord.gateway.DiscordWebSocket.identify = mobile
+```
+
+This causes the bot to appear with a mobile status indicator in Discord.
+
+## Auto-PFP system (`cogs/autopfp.py`)
+
+The autopfp feature is the core of Harm. It has two parts: a background task and a command group.
+
+### Background task
+
+```python
+@tasks.loop(minutes=1)
+async def autopfp_loop(bot):
+    if results := await bot.db.fetch("SELECT * FROM autopfp"):
+        for result in results:
+            async with aiohttp.ClientSession() as session:
+                webhook = discord.Webhook.from_url(
+                    result['webhook_url'],
+                    session=session
+                )
+            pfp = random.choice(bot.pfps.get(result['genre']))
+            embed = discord.Embed(color=bot.color)
+            embed.set_image(url=pfp)
+            embed.set_footer(text="source: pinterest")
+            await webhook.send(
+                username="harm - autopfp",
+                avatar_url=bot.user.display_avatar.url,
+                embed=embed,
+                silent=True
+            )
+            await asyncio.sleep(0.8)
+```
+
+Deliveries are made via webhooks stored in the `autopfp` table (columns: `guild_id`, `webhook_url`, `genre`). If a webhook URL is invalid, the row is deleted. Each send sleeps 0.8 seconds to avoid rate limits.
+
+### Command group
+
+<Steps>
+  <Step title="$autopfp add &lt;genre&gt; &lt;format&gt; #channel">
+    Requires `manage_guild` and `manage_webhooks`. Creates or reuses an existing webhook in the target channel, then inserts a row into `autopfp`. Genre and format are validated by `Genre` and `PfpFormat` converters.
+  </Step>
+  <Step title="$autopfp remove &lt;genre&gt; &lt;format&gt;">
+    Requires `manage_guild`. Deletes the matching row from `autopfp`, stopping future deliveries for that genre/format combination.
+  </Step>
+  <Step title="$autopfp list">
+    Fetches all active genres for the guild and paginates them using `HarmContext.paginate`.
+  </Step>
+  <Step title="$autopfp help">
+    Displays available genres (`male`, `female`, `anime`) and formats (`png`, `gif`).
+  </Step>
+</Steps>
+
+## PFP image data (`pfps/`)
+
+Images are stored as URLs in plain-text files, one URL per line:
+
+| File | Genre key |
+|---|---|
+| `male_pfps.txt` | `male_png` |
+| `female_pfps.txt` | `female_png` |
+| `anime_pfps.txt` | `anime_png` |
+| `male_gifs.txt` | `male_gif` |
+| `female_gifs.txt` | `female_gif` |
+| `anime_gifs.txt` | `anime_gif` |
+
+All URLs are Discord CDN attachment links (`media.discordapp.net/attachments/...`). The lists are loaded once at `__init__` and kept in memory; `random.choice` selects from them on each task tick.
+
+## Cog structure (`cogs/`)
+
+<CardGroup cols={2}>
+  <Card title="autopfp.py">
+    Auto profile picture posting — webhook delivery, add/remove/list commands.
+  </Card>
+  <Card title="events.py">
+    Guild event listeners (member join/leave, etc.).
+  </Card>
+  <Card title="info.py">
+    User and server information commands.
+  </Card>
+  <Card title="moderation.py">
+    Moderation commands (ban, kick, mute, etc.).
+  </Card>
+  <Card title="owner.py">
+    Owner-only commands; hidden from public help.
+  </Card>
+  <Card title="usernames.py">
+    Username history tracking features.
+  </Card>
+  <Card title="utility.py">
+    General-purpose utility commands.
+  </Card>
+  <Card title="wtv.py">
+    Miscellaneous commands; likely houses OpenAI/Dialogflow integration given the req.txt dependencies.
+  </Card>
+</CardGroup>
+
+## Tools (`tools/`)
+
+<Tabs>
+  <Tab title="tools/context.py">
+
+`HarmContext` extends `commands.Context` with two embed-reply helpers and a paginator:
+
+```python
+async def success(self, message: str) -> discord.Message:
+    embed = discord.Embed(
+        color=0x32CD32,   # green
+        description=f"> {self.author.mention}: {message}"
+    )
+    return await self.send(embed=embed)
+
+async def error(self, message: str) -> discord.Message:
+    embed = discord.Embed(
+        color=0xff0000,   # red
+        description=f"> {self.author.mention}: {message}"
+    )
+    return await self.send(embed=embed)
+```
+
+`paginate(contents, title, author)` chunks any list of strings into 10-item pages and delegates to `paginator()`, which wraps `discord_paginator.Paginator` with custom left/stop/right buttons.
+
+  </Tab>
+  <Tab title="tools/help.py">
+    `HarmHelp` is a custom help command class passed to `help_command=` in the bot constructor. The full implementation is in `tools/help.py`.
+  </Tab>
+  <Tab title="tools/converters.py">
+    Defines `Genre` and `PfpFormat` converters used by the `autopfp add` and `autopfp remove` commands to validate genre and format arguments before they reach the command handler.
+  </Tab>
+</Tabs>
+
+## Startup sequence
+
+<Steps>
+  <Step title="main.py imports and runs">
+    `from tools.bot import DiscordBot` then `DiscordBot().run()` — the entire bot is `tools/bot.py`.
+  </Step>
+  <Step title="__init__ loads PFP lists">
+    All six `.txt` files are opened and split into lists in memory during `DiscordBot.__init__`.
+  </Step>
+  <Step title="setup_hook connects DB and loads cogs">
+    `await self.connect_db()` creates the asyncpg pool, then `load_cogs()` loads jishaku followed by all files in `./cogs/`.
+  </Step>
+  <Step title="on_ready starts the autopfp loop">
+    `autopfp_loop.start(self)` begins the 1-minute webhook delivery cycle.
+  </Step>
+</Steps>
+
+## Message handling
+
+`on_message` applies two cooldown checks (per-channel: 3/5s, per-user: 3/5s), skips bot authors, checks a `blacklisted` table before processing any command, and responds to a bare mention with the current prefix (`$`).
+
+`on_message_edit` reprocesses the updated message if its content changed, enabling command invocation from edited messages.
+
+`on_command_error` ignores `NotOwner`, `CommandOnCooldown`, and `CommandNotFound`; auto-sends help on `MissingRequiredArgument`; and surfaces permission errors and generic errors via `ctx.error`.

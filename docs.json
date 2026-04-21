@@ -1,122 +1,81 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Skid Archive",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#5865F2",
+    "light": "#7289DA",
+    "dark": "#2C2F33"
   },
-  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/cop-discord/skidarchive"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/cop-discord/skidarchive"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Overview",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Introduction",
+            "pages": ["introduction", "repository-structure"]
+          },
+          {
+            "group": "Bots",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "bots/allstar",
+              "bots/cb0-usebot",
+              "bots/prada",
+              "bots/belongs",
+              "bots/cut",
+              "bots/harm",
+              "bots/violated"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Utilities",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "utilities/vanity-sniper",
+              "utilities/massdm-bots",
+              "utilities/auto-pfp",
+              "utilities/api-server"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Code Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Allstar Bot",
             "pages": [
-              "api-reference/introduction"
+              "reference/allstar-commands",
+              "reference/allstar-antinuke",
+              "reference/allstar-events"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Selfbot (main)",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "reference/selfbot-overview",
+              "reference/selfbot-core"
+            ]
+          },
+          {
+            "group": "Vanity Sniper",
+            "pages": [
+              "reference/vanity-sniper-internals"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

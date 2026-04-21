@@ -1,0 +1,103 @@
+---
+title: "Discord interactions API server: Express on port 5000"
+description: "A minimal Express.js server that handles Discord interaction callbacks on port 5000, responding to POST and GET /interactions with a type 1 ping response."
+---
+
+The `api/` directory contains a minimal Express.js server whose sole job is to satisfy Discord's interaction endpoint verification requirement. When you register a slash command application, Discord sends a `POST /interactions` ping to your endpoint to confirm it is reachable and responding correctly; this server returns the required `{"type": 1}` response for both POST and GET requests.
+
+## Full source
+
+```javascript
+var express = require("express");
+var app = express();
+var bodyParser = require('body-parser');
+app.use(bodyParser.urlencoded({ extended: false }));
+
+app.all('/', function(req, res, next) {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "X-Requested-With");
+  next();
+});
+
+app.post("/interactions", (req, res) => {
+  res.json({'type': 1});
+  console.log(req, req.body);
+});
+
+app.get("/interactions", (req, res) => {
+  res.json({'type': 1});
+});
+
+app.listen(5000);
+```
+
+## Routes
+
+<CardGroup cols={2}>
+  <Card title="POST /interactions" icon="arrow-up">
+    Returns `{"type": 1}` — the Discord PING response type. Also logs the full request object and body to stdout for debugging.
+  </Card>
+  <Card title="GET /interactions" icon="arrow-down">
+    Also returns `{"type": 1}`. Useful for manually confirming the endpoint is live from a browser or curl.
+  </Card>
+</CardGroup>
+
+## CORS middleware
+
+A catch-all `app.all('/')` middleware sets two response headers before passing the request downstream:
+
+```javascript
+res.header("Access-Control-Allow-Origin", "*");
+res.header("Access-Control-Allow-Headers", "X-Requested-With");
+```
+
+This allows requests from any origin, which is necessary when the Discord developer portal pings the endpoint during verification.
+
+## Context: Discord interaction verification
+
+When you register an interactions endpoint URL in the [Discord developer portal](https://discord.com/developers/applications), Discord immediately sends a POST with `{"type": 1}` (PING). Your server must respond with `{"type": 1}` (PONG) within a timeout window, or the endpoint will be rejected. This server passes that check unconditionally.
+
+<Info>
+  A production interactions server would also verify the `X-Signature-Ed25519` and `X-Signature-Timestamp` headers Discord includes with every request. This implementation skips that verification step — any POST to `/interactions` will receive a type 1 response regardless of whether it actually originates from Discord.
+</Info>
+
+## Dependencies
+
+Defined in `package.json`:
+
+```json
+{
+  "name": "api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.18.2"
+  }
+}
+```
+
+## Running
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+  <Step title="Start the server">
+    ```bash
+    node index.js
+    ```
+    The server listens on port 5000 with no output until a request arrives.
+  </Step>
+  <Step title="Verify the endpoint">
+    ```bash
+    curl -X POST http://localhost:5000/interactions
+    # {"type":1}
+
+    curl http://localhost:5000/interactions
+    # {"type":1}
+    ```
+  </Step>
+</Steps>

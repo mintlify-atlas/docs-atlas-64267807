@@ -1,0 +1,71 @@
+---
+title: "What is Skid Archive? An overview of the collection"
+description: "Skid Archive is a public collection of Discord bot source code obtained by exploiting and pulling sources from live bots across Discord."
+---
+
+Skid Archive is a GitHub repository that collects Discord bot source code by exploiting live bots and extracting their source directly. The repository's own description captures it plainly: "a repository of bots that i exploit / pull the source of and nuke." What results is a cross-section of real-world Discord bot development — covering full community bots, selfbots, vanity URL snipers, mass DM tools, and image-posting automations — preserved exactly as found.
+
+<Warning>
+  All source code in this archive was obtained through exploitation of live Discord bots. This documentation is provided for educational and research purposes only. Do not deploy or operate any of these bots.
+</Warning>
+
+## What the archive contains
+
+The collection spans **20 folders**, each holding a separate bot or utility. The complete list of directories is:
+
+`allstar` · `api` · `belongs` · `blair` · `cb0` · `cut` · `harm` · `honda` · `kyo` · `main` · `massdm-bots` · `mobile-status` · `prada` · `saint` · `saith` · `silja_autopfp` · `use` · `vanity-sniper` · `violated` · `yeat`
+
+Most bots are written in **Python** using `discord.py` or `discord.py-self`. A smaller set uses **JavaScript** with Discord.js or Express.js.
+
+## Bot categories
+
+### Full community bots
+
+These are feature-complete bots intended to run in public Discord servers, with moderation, music, and utility commands.
+
+- **allstar** — JavaScript (Discord.js), 100+ commands, slash commands, MariaDB storage
+- **cb0 / use / honda** — Python (discord.py), music, voice, SQLite persistence, auto-posting
+
+### Selfbots
+
+Selfbots run on a personal user account rather than a bot token, using the self-bot variant of the discord.py library.
+
+- **main** — Python (discord.py-self), prefix `;`, jishaku extension for runtime debugging
+- **belongs** — Python (discord.py), category-based cog architecture
+
+### Vanity URL snipers
+
+- **vanity-sniper** — Python, WebSocket-based, monitors `GUILD_UPDATE` dispatches and claims released vanity URLs automatically
+
+### Mass DM bots
+
+- **massdm-bots** — Python (discord.py), sends direct messages to new members across multiple guilds
+
+### Auto-PFP and image-posting bots
+
+These bots periodically upload categorized images to Discord channels, typically sourcing from a local directory and posting via the Discord CDN.
+
+- **silja_autopfp** — Python, auto-PFP bot posting images via Discord CDN
+- **yeat** — Python, auto-PFP bot with image upload to Discord CDN
+- **cb0** — includes auto-posting functionality alongside community bot features
+
+### Utility tools
+
+- **api** — JavaScript (Express.js), Discord interaction webhook handler on port 5000
+
+## Explore the archive
+
+<CardGroup cols={2}>
+  <Card title="Repository structure" icon="folder-tree" href="/repository-structure">
+    Per-folder breakdown of every directory: language, framework, and purpose.
+  </Card>
+  <Card title="Allstar bot" icon="star" href="/bots/allstar">
+    The flagship Discord.js community bot with 100+ slash commands and MariaDB.
+  </Card>
+  <Card title="Vanity sniper" icon="bolt" href="/utilities/vanity-sniper">
+    WebSocket-based tool that claims released Discord vanity URLs automatically.
+  </Card>
+  <Card title="Mass DM bots" icon="envelope-open-text" href="/utilities/massdm-bots">
+    Python bots that send DMs to new server members across multiple guilds.
+  </Card>
+</CardGroup>

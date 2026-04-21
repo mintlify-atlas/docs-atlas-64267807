@@ -1,0 +1,197 @@
+---
+title: "Mass DM bots: automated member messaging across guilds"
+description: "The mass DM bots use discord.py to send promotional DMs to new members on join and on leave events, operating across multiple guilds simultaneously."
+---
+
+The mass DM bot suite hooks into Discord member events to send unsolicited promotional messages to every user who joins or leaves any guild the bot is a member of. Multiple entry-point scripts and a cog-based architecture allow the bots to be run in parallel with different tokens and command prefixes.
+
+<Warning>
+  Sending unsolicited direct messages to users — especially using automated bots operating across many guilds — violates [Discord's Terms of Service](https://discord.com/terms) and Community Guidelines. Accounts running these bots are subject to permanent termination. This is documented here for archival and educational purposes only.
+</Warning>
+
+## `main.py` — event-driven DM bot
+
+`main.py` is the primary promotional bot. It registers four gateway events and keeps itself alive on cloud hosting platforms via a Flask keep-alive server.
+
+```python
+intents = discord.Intents.default()
+intents.members = True
+intents.guilds = True
+
+client = commands.Bot(
+    command_prefix="$",
+    case_insensitive=False,
+    shard_id=4,
+    intents=intents
+)
+```
+
+<Note>
+  `shard_id=4` is hardcoded, meaning this bot is intended to run as shard 4 of a larger sharded deployment rather than as a standalone instance.
+</Note>
+
+### `on_member_join`
+
+When a member joins any guild the bot is in, it immediately sends a DM containing:
+
+- An embed (`color=0x7289DA`) promoting `discord.gg/backseat`, `discord.gg/your`, and `tear.lol`
+- A disabled button labelled `Sent from {guild name}` so the recipient can see which server triggered the DM
+- A direct message text with the same invite links
+
+```python
+@client.event
+async def on_member_join(member):
+    channellol = client.get_channel(1177806443299213322)
+    print("{} joined!".format(member.name))
+    print(f'{member.guild.name}')
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label=f"Sent from {member.guild.name}", disabled=True))
+    embed = discord.Embed(
+        color=0x7289DA,
+        description=(
+            "Join our sponsored servers for a nitro giveaway, and add la#0001, qact, "
+            "purecomboy, & our son generocity\n\n"
+            "https://tear.lol/ \n\n https://discord.gg/backseat & https://discord.gg/your"
+        )
+    )
+    embed.set_thumbnail(url=client.user.avatar.url)
+    embed.set_author(name=f"{client.user.name}", icon_url=client.user.avatar.url)
+    embed.set_footer(text="discord.gg/your")
+    await member.send(
+        f"`sponsored`: https://discord.gg/your & https://discord.gg/backseat \n add la#0001",
+        embed=embed,
+        view=view
+    )
+    await channellol.send(f"`{member.name}` joined `{member.guild.name}`")
+```
+
+### `on_member_remove`
+
+When a member leaves, the same embed and invite links are sent to their DMs with a mention of the leaving member.
+
+```python
+@client.event
+async def on_member_remove(member):
+    channellol = client.get_channel(1177806443299213322)
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label=f"Sent from {member.guild.name}", disabled=True))
+    embed = discord.Embed(
+        color=0x7289DA,
+        description=(
+            "Join our sponsored servers for a nitro giveaway, and add la#0001, qact, "
+            "purecomboy, & our son generocity\n\n"
+            "https://tear.lol/ \n\n https://discord.gg/backseat & https://discord.gg/your"
+        )
+    )
+    embed.set_thumbnail(url=client.user.avatar.url)
+    embed.set_author(name=f"{client.user.name}", icon_url=client.user.avatar.url)
+    embed.set_footer(text="discord.gg/your")
+    await member.send(
+        f"{member.mention}, `sponsored`: https://discord.gg/your & add la#0001",
+        embed=embed,
+        view=view
+    )
+    await channellol.send(f"`{member.name}` left `{member.guild.name}`")
+```
+
+### Guild join/remove logging
+
+Both `on_guild_join` and `on_guild_remove` post a message to channel `1177806443299213322` reporting the guild name and member count.
+
+```python
+@client.event
+async def on_guild_join(guild):
+    channellol = client.get_channel(1177806443299213322)
+    await channellol.send(f"i have been added to: `{guild.name}` with `{len(guild.members)}` Members")
+
+@client.event
+async def on_guild_remove(guild):
+    channellol = client.get_channel(1177806443299213322)
+    await channellol.send(f"i have been removed from: `{guild.name}` with `{len(guild.members)}` Members")
+```
+
+## `keep_alive.py` — Flask uptime server
+
+`keep_alive.py` starts a minimal Flask server on port 8080 in a background thread. Hosting platforms like Replit use periodic HTTP pings to keep the process alive.
+
+```python
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def main():
+    return '<meta http-equiv="refresh" content="0; URL=https://phantom.is-a.dev/support"/>'
+
+def run():
+    app.run(host="0.0.0.0", port=8080)
+
+def keep_alive():
+    server = Thread(target=run)
+    server.start()
+```
+
+`main.py` calls `keep_alive()` before `client.run(...)` so the Flask thread is running before the bot connects.
+
+## `dm.py` and `dm2.py` — cog-based variants
+
+`dm.py` and `dm2.py` are alternative entry points that load extensions from the `cogs/` directory instead of defining event handlers inline.
+
+<CardGroup cols={2}>
+  <Card title="dm.py">
+    - Command prefix: `;` (or `^` with `--test` flag)
+    - Imports `discord_ios` for iOS client spoofing
+    - Sets a streaming presence on `on_ready`
+    - Syncs the slash command tree on `on_connect`
+  </Card>
+  <Card title="dm2.py">
+    - Command prefix: `x` (or `^` with `--test` flag)
+    - Does **not** import `discord_ios`
+    - Loads cogs on `on_ready` rather than `on_connect`
+    - No slash command tree sync
+  </Card>
+</CardGroup>
+
+Both scripts accept a `-t` / `--test` argument to switch to the `^` prefix for development and share the same token.
+
+```python
+# dm.py — prefix selection
+prefix = "^" if args.test else ";"
+
+# dm2.py — different production prefix
+prefix = "^" if args.test else "x"
+```
+
+## `cogs/dd.py` — `DmCog` command
+
+The single cog in `cogs/dd.py` exposes a `dmall` command that mass-DMs every non-bot member of the current guild. It uses an `asyncio.Queue` to rate-limit sends and pauses for 5 seconds every 100 DMs to reduce the chance of hitting Discord's rate limiter.
+
+```python
+@commands.command()
+@commands.check(owner)
+async def dmall(self, ctx, *, message):
+    self.embed_msg = await ctx.send(
+        embed=discord.Embed(description="now starting mass dm", color=0x2f3136)
+    )
+    for member in ctx.guild.members:
+        if not member.bot:
+            self.total_dms += 1
+            await self.dm_queue.put((member, message.format(user=member.mention)))
+    self.dm_task.start()
+```
+
+The `dm_task` loop processes the queue one item per second, prints confirmed sends to stdout, and updates an embed with the running `sent / total` count. `discord.Forbidden` errors (DMs closed) are caught and silently skipped.
+
+## Running
+
+```bash
+# Event-driven bot (main.py)
+python main.py
+
+# Cog-based bot with test prefix
+python dm.py --test
+
+# Cog-based bot (production prefix "x")
+python dm2.py
+```

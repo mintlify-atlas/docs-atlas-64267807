@@ -1,0 +1,178 @@
+---
+title: "Auto-PFP bots: timed image posting to Discord channels"
+description: "Auto-PFP bots post categorized images to registered Discord channels on a fixed interval, using the usebot API or Discord CDN to fetch and deliver content."
+---
+
+The auto-PFP suite covers two distinct implementations: a feature-rich multi-category image poster (`silja_autopfp`) that fetches content from the `api.usebot.lol` API and stores channel registrations in SQLite, and a lighter CDN-based bot (`yeat`) that reads images from a local file list and posts them to a channel on demand with a `sendpfps` command.
+
+## `silja_autopfp` — API-driven category posting
+
+`silja_autopfp/main.py` defines more than a dozen `@tasks.loop(seconds=17)` loops, each pulling a different content category from the `https://api.usebot.lol/api` endpoint every 17 seconds. Channel registrations are persisted in an `aiosqlite` database; each loop queries its own table to discover which channels it should post to.
+
+### Architecture
+
+```
+silja_autopfp/
+├── main.py          # Bot entry point, all task loops defined here
+├── req.txt          # pip dependencies
+└── bot/
+    └── embed.py     # Embed and ErrorEmbed helper classes
+```
+
+`bot/embed.py` provides two thin subclasses of `discord.Embed` that default to colour `0x2B2D31`:
+
+```python
+class Embed(discord.Embed):
+    def __init__(self, desc):
+        super().__init__(color=0x2B2D31, description=desc)
+
+class ErrorEmbed(discord.Embed):
+    def __init__(self, error):
+        super().__init__(color=0x2B2D31, description=error)
+```
+
+### How each task loop works
+
+Every category task follows the same pattern:
+
+1. POST to `https://api.usebot.lol/api` with a Bearer token and an `option` field naming the category
+2. Extract the image URL from the JSON response
+3. Query the SQLite table for that category to find registered channel IDs
+4. For each channel, send the URL and add a reaction emoji, then sleep 17.5 seconds before the next channel
+
+```python
+@tasks.loop(seconds=17)
+async def female():
+    header = {'Authorization': 'Bearer 464099bf-6179-4cd6-9fd1-e8e5041f52c5'}
+    type = {'option': 'female'}
+
+    r = requests.post("https://api.usebot.lol/api", headers=header, json=type)
+    urll = r.json()["url"]
+
+    async with bot.db.cursor() as cursor:
+        await cursor.execute("SELECT * FROM female")
+        results = await cursor.fetchall()
+        for result in results:
+            channel_id = result[1]
+            try:
+                channel = bot.get_channel(channel_id)
+                msg = await channel.send(urll)
+                await msg.add_reaction("<:fire:1129806609099530300>")
+                await asyncio.sleep(17.5)
+            except:
+                pass
+```
+
+<Note>
+  The full list of image categories available in `silja_autopfp/main.py` is: `female`, `male`, `anime`, `random pfp`, `banner`, `match` (paired avatar + banner), `female gif`, `male gif`, `anime` (gif), `cars`, `guns`, `faceless`, `nsfw pfp`, `shoes`, `jewellry`, `aesthetic`, `cartoon`, `drill`, `hello kitty`, `money`, `smoke`, `animals`, `soft`, `besties`, `couple gif`, `couple`, `kpop`, `edgy`, `core`, plus a `quote` loop that posts text from the usebot quote API. There is also an `automeme` loop defined later in the file.
+</Note>
+
+The `match` category is the most elaborate — it returns both `avatar_url` and `banner_url` and sends two embeds to show the matched pair:
+
+```python
+embed.set_image(url=urll['avatar_url'])
+embed_banner = discord.Embed(
+    color=0x2B2D31,
+    description="[here is banner, pfp below](https://www.pinterest.com/proxypfps/)"
+)
+embed_banner.set_image(url=urll['banner_url'])
+await msg.edit(embeds=[embed_banner, embed])
+```
+
+### Gateway IDENTIFY patch
+
+`main.py` monkey-patches `DiscordWebSocket.identify` to spoof the client as a website browser, which makes the account appear online from a web browser:
+
+```python
+async def identify(self):
+    payload = {
+        'op': self.IDENTIFY,
+        'd': {
+            'token': self.token,
+            'properties': {
+                '$os': sys.platform,
+                '$browser': 'website',
+                '$device': 'website',
+                '$referrer': '',
+                '$referring_domain': ''
+            },
+            ...
+        }
+    }
+    ...
+
+DiscordWebSocket.identify = identify
+```
+
+### Dependencies (`req.txt`)
+
+Key packages include a custom discord fork (`cop-discord/disdick`), `aiosqlite`, `jishaku`, `pymongo`, `openai`, `python-dotenv`, `colorthief`, `topggpy`, `google-cloud-dialogflow`, and `button-paginator`.
+
+---
+
+## `yeat` — CDN-based image sender
+
+The `yeat` bot takes a different approach: rather than polling an external API it reads image URLs from a local file (`scraped.txt`) and posts them on demand via a `sendpfps` command.
+
+From the README:
+
+> This GitHub repository contains an open-source Discord Auto PFP Bot with Image Upload capabilities, utilizing Discord's CDN API. The bot is designed to automatically upload profile pictures to a specific channel, as well as changing a user's profile picture at a pre-set interval.
+>
+> Users can customize the bot's settings to change the interval time between picture uploads, specify the folder where the images are stored, and set the bot to only upload pictures when certain conditions are met.
+
+### Commands
+
+```python
+@rh.command()
+async def sendpfps(ctx):
+    global tostop
+    if ctx.author.id == 1148300105758298123 or ctx.author.id == 1055512125986050069 or allowed:
+        tostop = 0
+        embed = discord.Embed(description="<:approve:1148728529412948018> sending pfps", color=approve)
+        await ctx.send(embed=embed)
+        while tostop == 0:
+            embed = discord.Embed(color=0x2B2D31)
+            embed.set_image(url=randnum('scraped.txt'))
+            await ctx.send(embed=embed)
+            time.sleep(3)
+```
+
+`sendpfps` loops until `tostop` is incremented by the `stop` command, picking a random URL from `scraped.txt` every 3 seconds and posting it as an embed.
+
+The companion `scrappfp` command collects avatar URLs from all visible users and writes them to `scrapped.txt` for later use:
+
+```python
+@rh.command()
+async def scrappfp(ctx):
+    with open('scrapped.txt', 'w') as f:
+        for i in rh.users:
+            f.write(f'"{i.display_avatar.url}",')
+            f.write('\n')
+    await ctx.send('did')
+```
+
+### Bot setup
+
+```python
+TOKEN = "..."
+rh = commands.Bot(
+    command_prefix=";",
+    intents=intents,
+    help_command=None,
+    owner_id=1148300105758298123,
+    shards_count=2
+)
+```
+
+Prefix is `;`. The bot goes invisible on ready (`discord.Status.invisible`) and renames itself to `social` on guild join.
+
+### Running
+
+```bash
+# silja_autopfp
+pip install -r req.txt
+python main.py
+
+# yeat
+python main.py
+```

@@ -1,0 +1,167 @@
+---
+title: "Violated: lightweight Python bot with web keep-alive"
+description: "Violated is a minimal Python Discord bot with a Flask/aiohttp web server keep-alive component, JSON configuration, and an async webserver for uptime monitoring."
+---
+
+Violated is a stripped-down self-bot (`self_bot=True`) with a `+` prefix, no cog system, and no database. Its defining feature is a pair of Flask-based keep-alive modules — `alive.py` and `webserver.py` — that each spin up a threaded HTTP server on `0.0.0.0:8080`, a pattern commonly used to keep bots alive on free hosting platforms like Replit. Configuration is minimal: a single `config.json` holds the token, and `main.py` is 13 lines.
+
+## Imports and dependencies
+
+`main.py` imports only the `discord` library. The two keep-alive modules each import `flask.Flask` and `threading.Thread`:
+
+```python
+# main.py imports
+import discord
+
+# alive.py / webserver.py imports
+from flask import Flask
+from threading import Thread
+```
+
+No `requirements.txt` is present; the runtime dependencies are:
+- `discord.py` (or a self-bot variant)
+- `flask`
+
+## `config.json` structure
+
+```json
+{
+  "token": "<bot token>"
+}
+```
+
+A single `token` field. The file is not referenced in `main.py` — `main.py` passes the token directly as a string literal to `bot.run(...)`. `config.json` appears to be an alternate or earlier config mechanism kept alongside the bot.
+
+<Warning>
+Both `config.json` and `main.py` contain bot tokens in plaintext. These values are present in the archive and should be treated as fully compromised.
+</Warning>
+
+## Main bot (`main.py`)
+
+```python
+import discord
+
+intents = discord.Intents.default()
+bot = commands.Bot(
+    command_prefix="+",
+    self_bot=True,
+    help_command=None,
+    intents=intents
+)
+bot.remove_command("help")
+intents.presences = True
+
+@bot.event
+async def on_ready():
+    print(f"{bot.user.name} is ready.")
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(
+            type=discord.ActivityType.streaming,
+            name="discord.gg/board",
+            url='https://www.youtube.com/watch?v=KZqIKhDTcfE'
+        )
+    )
+    print(f"streaming on {bot.user} | {bot.user.id}")
+
+bot.run("...", bot=True, reconnect=True)
+```
+
+<Note>
+`commands` is referenced on line 4 but not imported — `main.py` has a missing `from discord.ext import commands` import. The bot would raise a `NameError` on startup as written.
+</Note>
+
+On `on_ready`, the bot sets itself to a streaming presence using a YouTube URL as the stream source and prints its username and ID to stdout.
+
+## Keep-alive modules
+
+Violated ships two nearly identical Flask keep-alive implementations. Both bind to `0.0.0.0:8080` and run in a daemon thread so they don't block the asyncio event loop.
+
+<Tabs>
+  <Tab title="webserver.py">
+
+The primary keep-alive module:
+
+```python
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "I'm alive"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+```
+
+`keep_alive()` is the public entry point. The root route returns a plain `"I'm alive"` string, which is enough for an uptime monitor to record a successful HTTP 200 response.
+
+  </Tab>
+  <Tab title="alive.py">
+
+A second, functionally equivalent implementation with a different root response:
+
+```python
+from flask import Flask
+from threading import Thread
+
+app = Flask('')
+
+@app.route('/')
+def main():
+    return "join our discord server here https://discord.gg/7rjU4SfZwy"
+
+def run():
+    app.run(host="0.0.0.0", port=8080)
+
+def alive():
+    server = Thread(target=run)
+    server.start()
+```
+
+The entry point is `alive()` (not `keep_alive()`). The route returns a Discord invite string instead of a status message.
+
+  </Tab>
+</Tabs>
+
+The two modules are interchangeable at the call site — only the function name and route response text differ. Both occupy port 8080, so only one can be active at a time.
+
+## How the keep-alive pattern works
+
+<Steps>
+  <Step title="Import the keep-alive module">
+    Either `from webserver import keep_alive` or `from alive import alive` is added to the top of `main.py`.
+  </Step>
+  <Step title="Call the entry point before bot.run">
+    `keep_alive()` (or `alive()`) is called, which starts a `Thread` running the Flask app. The thread runs in the background while the main thread continues to `bot.run(...)`.
+  </Step>
+  <Step title="External uptime monitor pings the HTTP endpoint">
+    A service (e.g. UptimeRobot) sends HTTP GET requests to `http://<host>:8080/` every few minutes. The Flask server responds with `200 OK`, and the hosting platform keeps the process alive.
+  </Step>
+  <Step title="Bot stays connected">
+    Without the pings, free-tier hosting platforms (like older Replit) would sleep inactive processes. The HTTP responses prevent that timeout.
+  </Step>
+</Steps>
+
+<Info>
+This keep-alive pattern is specific to hosting environments that sleep idle processes. It is not needed when running the bot on a VPS or dedicated server where the process is always active.
+</Info>
+
+## File inventory
+
+```
+violated/
+├── main.py          # Bot definition, on_ready, bot.run call (13 lines)
+├── config.json      # {"token": "..."}
+├── alive.py         # Flask keep-alive variant A — route returns Discord invite
+├── webserver.py     # Flask keep-alive variant B — route returns "I'm alive"
+└── __pycache__/     # Compiled bytecode
+```
+
+No cogs directory, no event directory, no database, no `.env`. Everything is in four files.

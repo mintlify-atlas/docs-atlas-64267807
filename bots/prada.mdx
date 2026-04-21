@@ -1,0 +1,229 @@
+---
+title: "Prada: modular Python Discord bot with cog architecture"
+description: "Prada is a Python Discord bot using discord.py with a cog-based command structure, JSON blacklist/whitelist configuration, and a custom prefix system."
+---
+
+Prada is a Python Discord bot built on a custom `discord.py` fork (`rapptz/discord.py` installed from GitHub). Its architecture centres on a `Slut` subclass of `commands.AutoShardedBot` that discovers and loads cogs recursively from a `categories/` directory tree. Configuration lives in two files — `config.py` for the token and owner IDs, and `blacklist.json`/`whitelist.json` for access-control data.
+
+<Warning>
+  `config.py` contains a hardcoded bot token and owner ID list in plain text. The token in the repository should be considered compromised and must be replaced before running the bot.
+</Warning>
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="discord.py (upstream + selfcord)" icon="python">
+    `requirements.txt` lists both `git+https://github.com/rapptz/discord.py` and `dolfies/discord.py-self` (selfcord). The presence of the self-library suggests optional self-bot usage patterns alongside the regular bot client.
+  </Card>
+  <Card title="Redis + asyncpg" icon="database">
+    `redis` and `cashews[redis]` for caching; `asyncpg` for optional PostgreSQL persistence.
+  </Card>
+  <Card title="pomice + yt-dlp" icon="music">
+    `pomice` for Lavalink-backed music playback; `yt-dlp` for direct media extraction.
+  </Card>
+  <Card title="jishaku" icon="terminal">
+    Loaded at `on_ready` for owner REPL access and live debugging.
+  </Card>
+</CardGroup>
+
+Additional dependencies: `psutil`, `xxhash`, `pillow`, `munch`, `tornado`, `beautifulsoup4`, `humanize`, `shazamio`, `typing_extensions`, `pyppeteer`, `colorgram.py`, `python-dateutil`, `pydantic`, `humanfriendly`, `pydub`, `python-magic`, `ffmpeg-python`.
+
+## Directory structure
+
+```
+prada/
+├── main.py              # Entry point — instantiates Slut()
+├── config.py            # token, owner_ids
+├── blacklist.json       # {"blacklist": {"users": ...}}
+├── whitelist.json       # {"whitelist": {}, "is_enabled": true}
+├── requirements.txt
+├── core/
+│   ├── __init__.py
+│   ├── slut.py          # Bot subclass (Slut)
+│   └── client/          # HelpCommand, logging setup
+└── categories/
+    ├── blacklist/blacklist.py
+    ├── cut_videos/       # Video download/cut commands
+    ├── dev/dev.py
+    ├── events/events.py
+    ├── guilds/servers.py
+    ├── info/info.py
+    ├── mod/mod.py
+    ├── servers/servers.py
+    ├── utility/utility.py
+    ├── vc/vc.py
+    ├── welcome/welcome.py
+    └── youtube/youtube.py
+```
+
+## Entry point
+
+`main.py` is minimal — it imports `Slut` from `core` and calls it directly:
+
+```python
+from core import Slut
+
+if __name__ == "__main__":
+    Slut()
+```
+
+The `Slut.__init__` constructor calls `self.run(token=config.token)` synchronously, so the bot starts as soon as the class is instantiated.
+
+## Bot configuration (`core/slut.py`)
+
+```python
+class Slut(Bot, commands.AutoShardedBot):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(
+            owner_ids=config.owner_ids,
+            intents=Intents.all(),
+            shard_count=1,
+            command_prefix=self.get_prefix,
+            help_command=HelpCommand(),
+            case_insensitive=True,
+            strip_after_prefix=True,
+            allowed_mentions=AllowedMentions(
+                replied_user=False,
+                everyone=False,
+                roles=False,
+                users=True,
+            ),
+            status=Status.online,
+        )
+        self.run(token=config.token)
+```
+
+The prefix is hardcoded to `,` (comma) via `when_mentioned_or(",")`. Responding to the bot's direct mention also sends the configured prefix back to the user.
+
+## Configuration files
+
+### `config.py`
+
+```python
+token = "<BOT_TOKEN>"
+owner_ids = [628236220392275969, 1040008141301088276, 193315346923388929]
+```
+
+### `blacklist.json`
+
+Stores a flat list of blacklisted user IDs under `blacklist.users`. The `blacklist` cog (`categories/blacklist/blacklist.py`) reads and mutates this file.
+
+### `whitelist.json`
+
+```json
+{"whitelist": {}, "is_enabled": true}
+```
+
+The `is_enabled` flag gates whitelist enforcement. When enabled, only whitelisted entities may invoke commands.
+
+## Cog loading
+
+Cog discovery happens in `on_connect` by walking all subdirectories of `./categories/`:
+
+```python
+async def load_cogs(self):
+    for category_folder in os.listdir("./categories"):
+        category_path = os.path.join("./categories", category_folder)
+        if os.path.isdir(category_path):
+            for file in os.listdir(category_path):
+                if file.endswith(".py"):
+                    cog_name = f"categories.{category_folder}.{file[:-3]}"
+                    await self.load_extension(cog_name)
+```
+
+`jishaku` is loaded separately in `on_ready`.
+
+## Cog reference
+
+<Tabs>
+  <Tab title="mod">
+    Implements the `Moderation` cog. Commands:
+
+    | Command | Aliases | Description |
+    |---|---|---|
+    | `audit` | `auditlog`, `logs` | Shows last 10 audit log entries with reaction pagination |
+    | `unbanall` | — | Removes all bans from the server |
+    | `kick` | `yeet`, `boot`, `throw` | Kicks a member |
+    | `ban` | `banland`, `deport`, `noskidding` | Bans a user |
+    | `purge` | `p` | Bulk-deletes messages |
+    | `staffstrip` | `strip` | Removes all roles from a member |
+    | `softban` | — | Bans and immediately unbans to delete messages |
+    | `lock` | — | Locks the current channel |
+    | `unlock` | — | Unlocks the current channel |
+    | `hide` | — | Makes channel invisible to `@everyone` |
+    | `unhide` | — | Restores channel visibility |
+    | `role` | — | Adds or removes a role by name from a member |
+    | `slowmode` | `sm` | Sets slowmode on a channel |
+  </Tab>
+  <Tab title="info">
+    Implements the `Information` cog. Commands:
+
+    | Command | Aliases | Description |
+    |---|---|---|
+    | `rtt` | — | Measures round-trip latency over 5 API calls with mean/stddev |
+    | `uptime` | — | Shows bot uptime |
+    | `ping` | — | WebSocket latency |
+    | `shards` | — | Shard status |
+    | `botinfo` | `about`, `saint`, `bi`, `stats` | Full bot and system info |
+    | `invite` | `inv` | Bot invite link |
+    | `support` | — | Support server link |
+  </Tab>
+  <Tab title="utility">
+    Implements the `Utility` cog. Commands:
+
+    | Command | Aliases | Description |
+    |---|---|---|
+    | `afk` | — | Sets the caller as AFK with an optional reason |
+    | `snipe` | `s` | Shows the last deleted message in a channel |
+    | `clearsnipe` | `cs` | Clears the snipe cache |
+    | `blacktea` | — | Word-chain game using a 10,000-word MIT list |
+    | `icon` | — | Shows server icon |
+    | `avatar` | — | Shows user avatar |
+    | `instagram` | `ig` | Fetches an Instagram user's profile (via `instaloader`) |
+    | `nuke` | — | Clones and deletes the current channel (administrator only) |
+    | `steal` | — | Steals an emoji to the current server |
+    | `addmultiple` | `addemojis`, `add`, `am` | Bulk-adds multiple emojis |
+    | `enlarge` | — | Posts a full-size emoji image |
+    | `bots` | — | Lists all bots in the server |
+    | `membercount` | `mc` | Shows member count breakdown |
+    | `userinfo` | `ui` | Shows detailed user information |
+    | `server` | — | Shows server info or looks up a server by ID |
+  </Tab>
+  <Tab title="other cogs">
+    | Cog file | Category folder | Purpose |
+    |---|---|---|
+    | `blacklist.py` | `blacklist` | Commands to add/remove users from `blacklist.json` |
+    | `dev.py` | `dev` | Developer/owner-only utilities |
+    | `events.py` | `events` | Guild event listeners |
+    | `servers.py` | `guilds` / `servers` | Per-guild configuration management |
+    | `vc.py` | `vc` | Voice channel utilities |
+    | `welcome.py` | `welcome` | Welcome message configuration |
+    | `youtube.py` | `youtube` | YouTube notification or search features |
+    | *(files)* | `cut_videos` | Video download and cutting commands |
+  </Tab>
+</Tabs>
+
+## Rate limiting
+
+The bot applies a shared cooldown at both the channel and user level (3 requests per 3 seconds per bucket) before dispatching any command:
+
+```python
+self.channel_cd = CooldownMapping.from_cooldown(3, 3, BucketType.channel)
+self.user_cd    = CooldownMapping.from_cooldown(3, 3, BucketType.user)
+
+async def on_message(self, message):
+    if not message.author.bot and message.guild:
+        if not self.cooldown(message):
+            return await self.process_commands(message)
+```
+
+## Running the bot
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Edit config.py with your token and owner IDs
+# Then start:
+python main.py
+```

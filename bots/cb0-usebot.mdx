@@ -1,0 +1,270 @@
+---
+title: "cb0 / usebot: Python community bot with auto-posting"
+description: "cb0 and use are two copies of the usebot Python bot with SQLite persistence, 33 cogs, and 30+ task loops posting categorized images every 10 seconds."
+---
+
+**cb0** and **use** are two copies of the same codebase, internally branded as **usebot**. Both directories share an identical `req.txt`, the same `main.py` entry point, and the same `cogs/` structure. The bot's defining feature is a set of 30+ task loops that automatically post content from `https://api.usebot.lol/api` into registered Discord channels every 10 seconds, covering categories ranging from female/male aesthetic photos to UK drill imagery and K-pop.
+
+<Note>
+  The source contains a hardcoded API bearer token (`464099bf-6179-4cd6-9fd1-e8e5041f52c5`) used for all `usebot.lol` API calls, as well as a bot token commented out at the bottom of `main.py`. These should be treated as compromised and rotated before any deployment.
+</Note>
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="discord.py (disdick fork)" icon="python">
+    Installed from `git+https://github.com/cop-discord/disdick` — a fork of discord.py used in place of the upstream package.
+  </Card>
+  <Card title="aiosqlite" icon="database">
+    Async SQLite driver used for all persistence: guild prefixes, auto-post channel registrations, selfprefix lookups, and more.
+  </Card>
+  <Card title="aiohttp + requests" icon="globe">
+    `aiohttp` for async HTTP inside cogs; synchronous `requests` inside the task loops when posting to `api.usebot.lol`.
+  </Card>
+  <Card title="psutil" icon="cpu">
+    System metrics (CPU %, memory %) reported in the `stats` task and bot info commands.
+  </Card>
+</CardGroup>
+
+Other notable dependencies from `req.txt`: `jishaku`, `pomice` (music), `pymongo`, `openai`, `tiktoken`, `google-cloud-dialogflow`, `topggpy`, `colorthief`, `humanize`, `pyfiglet`, `deep_translator`, `wordcloud`, `button-paginator`, `python-dotenv`.
+
+## Mobile status spoofing
+
+usebot patches `DiscordWebSocket.identify` at import time to present itself as a Discord iOS client, giving it the mobile online indicator in the member list:
+
+```python
+async def identify(self):
+    payload = {
+        'op': self.IDENTIFY,
+        'd': {
+            'token': self.token,
+            'properties': {
+                '$os': sys.platform,
+                '$browser': 'Discord iOS',
+                '$device': 'Discord iOS',
+                '$referrer': '',
+                '$referring_domain': ''
+            },
+            # ...
+        }
+    }
+    await self.send_as_json(payload)
+
+DiscordWebSocket.identify = identify
+```
+
+## Bot setup
+
+```python
+class Client(commands.AutoShardedBot):
+    def __init__(self):
+        super().__init__(
+            command_prefix=getprefix,
+            shards_count=1,
+            intents=intents,
+            help_command=None,
+            case_insensitive=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+            strip_after_prefix=True,
+            owner_ids=[1094511683554267197, 461914901624127489],
+        )
+        self.uptime = time.time()
+```
+
+The bot connects to `main.db` via `aiosqlite` in `on_connect`, loads all cogs from `./cogs/*.py`, then starts all task loops in `on_ready`.
+
+## Dynamic prefix
+
+Prefixes are resolved per-message via an async lookup against SQLite. Both a user-level self-prefix and a guild-level prefix are supported; the bot's own mention is always a valid fallback:
+
+```python
+async def getprefix(bot, message):
+    if not message.guild:
+        return "<@1171112895250169937>"
+    selfprefix = guildprefix = "<@1171112895250169937>"
+    async with bot.db.cursor() as cursor:
+        await cursor.execute(
+            "SELECT * FROM selfprefix WHERE user_id = {}".format(message.author.id)
+        )
+        check = await cursor.fetchone()
+        if check:
+            selfprefix = check[0]
+        await cursor.execute(
+            "SELECT prefix, * FROM prefixes WHERE guild_id = {}".format(message.guild.id)
+        )
+        res = await cursor.fetchone()
+        if res:
+            guildprefix = res[0]
+    return guildprefix, selfprefix
+```
+
+## Status task
+
+A `@tasks.loop(seconds=60)` task cycles the bot's presence every minute with a `CustomActivity`. The activity name list in the source is an empty string — the loop is present but the display text is blank.
+
+## Auto-posting loops
+
+All loops follow the same pattern: POST to `https://api.usebot.lol/api` with the hardcoded Bearer token and an `option` key, receive a URL, then iterate over every channel registered in the corresponding SQLite table and send the URL as a plain message.
+
+<Tabs>
+  <Tab title="People / portraits">
+    | Loop function | API option | SQLite table |
+    |---|---|---|
+    | `female` | `female` | `female` |
+    | `male` | `male` | `male` |
+    | `ricon` | `random pfp` | `random` |
+    | `match` | `match` | `match` |
+    | `faceless` | `faceless` | `faceless` |
+    | `autobody` | `nsfw pfp` | `autobody` |
+  </Tab>
+  <Tab title="Aesthetic / lifestyle">
+    | Loop function | API option | SQLite table |
+    |---|---|---|
+    | `aesthetic` | `aesthetic` | `aesthetic` |
+    | `soft` | `soft` | `soft` |
+    | `hellokitty` | `hello kitty` | `hellokitty` |
+    | `cartoon` | `cartoon` | `cartoon` |
+    | `animals` | `animals` | `animals` |
+    | `smoking` | `smoke` | `smoking` |
+    | `money` | `money` | `money` |
+  </Tab>
+  <Tab title="GIFs">
+    | Loop function | API option | SQLite table |
+    |---|---|---|
+    | `fgif` | `female gif` | `fgifs` |
+    | `mgif` | `male gif` | `mgifs` |
+    | `agif` | `anime` | `agifs` |
+    | `couplesgif` | `couple gif` | `couplesgif` |
+    | `anime` | `anime` | `anime` |
+  </Tab>
+  <Tab title="Couples / social">
+    | Loop function | API option | SQLite table |
+    |---|---|---|
+    | `couplespfp` | `couple` | `couplespfp` |
+    | `bff` | `besties` | `besties` |
+    | `kpopp` | `kpop` | `kpop` |
+    | `emoidk` | `edgy` | `edgy` |
+    | `coree` | `core` | `core` |
+  </Tab>
+  <Tab title="Fashion / gear">
+    | Loop function | API option | SQLite table |
+    |---|---|---|
+    | `autoshoes` | `shoes` | `autoshoes` |
+    | `autojewellry` | `jewellry` | `jewellry` |
+    | `autocar` | `cars` | `autocar` |
+    | `guns` | `guns` | `guns` |
+    | `ukdrill` | `drill` | `drill` |
+    | `nike` | `nike` | `nike` |
+    | `banner` | `banner` | `banner` |
+  </Tab>
+  <Tab title="Other">
+    | Loop function | Source | SQLite table |
+    |---|---|---|
+    | `qvote` | `https://api.usebot.lol/api/1.0/quote` | `quote` |
+    | `automeme` | `https://api.popcat.xyz/meme` | `automeme` |
+    | `hentai` | `http://api.nekos.fun:8080/api/<type>` | `hentai` |
+    | `autonsfw` | `api.usebot.lol` (vote-gated) | `autonsfw` |
+  </Tab>
+</Tabs>
+
+<Info>
+  The `autonsfw` loop checks whether the server owner has voted on top.gg before posting NSFW content. It uses the top.gg API with a hardcoded JWT token to verify the vote status.
+</Info>
+
+A typical loop body looks like:
+
+```python
+@tasks.loop(seconds=10)
+async def female():
+    header = {'Authorization': 'Bearer 464099bf-6179-4cd6-9fd1-e8e5041f52c5'}
+    r = requests.post("https://api.usebot.lol/api", headers=header, json={'option': 'female'})
+    urll = r.json()["url"]
+    async with bot.db.cursor() as cursor:
+        await cursor.execute("SELECT * FROM female")
+        results = await cursor.fetchall()
+        for result in results:
+            channel_id = result[1]
+            try:
+                channel = bot.get_channel(channel_id)
+                await channel.send(urll)
+            except:
+                pass
+```
+
+## Cogs
+
+All cog files live in `cb0/cogs/` and are loaded at `on_connect` with `await self.load_extension("cogs.<name>")`:
+
+<CardGroup cols={3}>
+  <Card title="antinuke.py" />
+  <Card title="automod.py" />
+  <Card title="autopost.py" />
+  <Card title="autoreact.py" />
+  <Card title="autoresponder.py" />
+  <Card title="autorole.py" />
+  <Card title="avatars.py" />
+  <Card title="boost.py" />
+  <Card title="emoji.py" />
+  <Card title="events.py" />
+  <Card title="fun.py" />
+  <Card title="goodbye.py" />
+  <Card title="imageonly.py" />
+  <Card title="info.py" />
+  <Card title="jail.py" />
+  <Card title="joindm.py" />
+  <Card title="lastfm.py" />
+  <Card title="moderation.py" />
+  <Card title="music.py" />
+  <Card title="nodata.py" />
+  <Card title="owner.py" />
+  <Card title="pingonjoin.py" />
+  <Card title="reactionrole.py" />
+  <Card title="roleplay.py" />
+  <Card title="slash.py" />
+  <Card title="tictactoe.py" />
+  <Card title="topg.py" />
+  <Card title="topgposter.py" />
+  <Card title="utility.py" />
+  <Card title="vanity.py" />
+  <Card title="voice.py" />
+  <Card title="voicemaster.py" />
+  <Card title="welcome.py" />
+</CardGroup>
+
+`jishaku` is also loaded explicitly at startup for owner-level REPL/debug access.
+
+## Stats task
+
+Every 60 seconds the `stats` loop posts a system-stats embed to a hardcoded channel ID (`1143273173111033866`):
+
+```python
+@tasks.loop(seconds=60)
+async def stats():
+    embed = discord.Embed(color=0x2B2D31)
+    embed.add_field(name="Bot", value=(
+        f"Latency: `{round(bot.latency * 1000)}ms`\n"
+        f"Serving: `{len(bot.guilds)} servers`\n"
+        f"Monitoring: `{len(set(bot.get_all_members()))} users`\n"
+        f"Commands: `{len(set(bot.walk_commands()))}`"
+    ), inline=True)
+    embed.add_field(name="System:", value=(
+        f"CPU Usage: `{psutil.cpu_percent()}%`\n"
+        f"Memory Usage: `{psutil.virtual_memory().percent}%`"
+    ), inline=True)
+    await slay.send(embed=embed)
+```
+
+## Running the bot
+
+```bash
+# Install dependencies
+pip install -r req.txt
+
+# Set the token in a .env file (loaded via python-dotenv)
+echo "use=<BOT_TOKEN>" > .env
+
+# Start
+python main.py
+```
+
+The token is read from the `use` environment variable: `bot.run(os.getenv("use"), reconnect=True)`.

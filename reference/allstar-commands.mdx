@@ -1,0 +1,233 @@
+---
+title: "Allstar command reference: all 119 prefix commands"
+description: "Complete listing of all Allstar Discord bot commands organized by category: moderation, server management, anti-raid, utility, fun, and image commands."
+---
+
+Allstar responds to prefix-based commands. The default prefix is set in `config.json` (`default_prefix`). Each guild can override it with `prefix set <char>`, and individual users can set their own personal prefix with `selfprefix`. You can also mention the bot directly in place of the prefix. Commands have a built-in 3.5-second cooldown per user — reacting with ⌛ means you triggered it too quickly.
+
+<Note>
+  The `antinuke`, `antispam`, `antialt`, `antilink`, and `antivanity` commands are restricted to the server owner. Most other moderation commands require `MANAGE_GUILD` or the relevant Discord permission.
+</Note>
+
+## Moderation
+
+Commands that act on members or channels. Most require the invoking member to hold the relevant Discord permission.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `ban` | — | Bans a member by mention or ID. Prompts confirmation via button before executing. Requires `BAN_MEMBERS`. |
+| `kick` | — | Kicks a member by mention, username, or display name. Requires `KICK_MEMBERS`. |
+| `timeout` | `mute`, `deaf` | Toggles Discord timeout on a member. Removes the timeout if the member is already timed out. Requires `MANAGE_MESSAGES`. |
+| `unban` | — | Unbans a user by ID. |
+| `unbanall` | — | Unbans all banned users in the guild. |
+| `purge` | `clear`, `c` | Bulk-deletes 2–100 messages from the current channel. Requires `MANAGE_MESSAGES`. |
+| `purgeuser` | — | Bulk-deletes messages from a specific user in the current channel. |
+| `lock` | — | Denies `SEND_MESSAGES` for `@everyone` in the current channel. |
+| `unlock` | — | Restores `SEND_MESSAGES` for `@everyone` in the current channel. |
+| `role` | — | Adds or removes a role from a member. |
+| `nickname` | — | Changes a member's nickname. |
+| `clearnames` | — | Clears the nickname history stored for a member. |
+| `nuke` | `clone` | Deletes the current channel and clones it in place. Prompts confirmation before executing. Requires `MANAGE_CHANNELS`. |
+
+## Server management
+
+Commands for configuring guild-level features. Most require `MANAGE_GUILD`.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `welcome` | `greet`, `welc` | Configures the welcome embed: channel, message, footer, author, image, thumbnail, color, embed on/off. Supports template variables. |
+| `goodbye` | — | Configures the leave message sent when a member leaves. |
+| `joindm` | — | Configures a DM sent to members when they join. Supports the same template variables as `welcome`. |
+| `autorole` | — | Sets a role to be automatically assigned to new members on join. Restricted to trusted admins. |
+| `logs` | — | Sets the channel where audit log events are posted (`logs_<guildId>`). Supports `channel`, `clear`, and `test` subcommands. |
+| `prefix` | `setprefix`, `prefixset` | Shows the current prefix configuration or sets a new server-wide prefix (`prefix set <char>`). Prefix cannot exceed 4 characters. |
+| `selfprefix` | — | Sets a personal prefix that works only for you, regardless of the server prefix. |
+| `whitelist` | `wl` | Whitelists a trusted user so antinuke events skip them (`trustedusers_<guildId>`). Server-owner only. |
+| `whitelisted` | — | Lists all currently whitelisted users. |
+| `blacklist` | — | Blacklists a user from using the bot in the server. |
+| `verify` | — | Configures a verification gate for new members. |
+| `joinlock` | — | Prevents new members from joining the server. |
+| `mocklock` | — | Applies a mock lock to a channel. |
+| `mockunlock` | — | Removes the mock lock from a channel. |
+
+## Anti-raid
+
+Commands that toggle automated protection systems. All require the server owner.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `antinuke` | `an` | Master toggle and configuration for all antinuke protections. Subcommands: `on`, `off`, `info`, `settings`, `enable <event>`, `disable <event>`. |
+| `antispam` | — | Enables or disables the anti-spam system (`antispam_<guildId>`). Timeouts members who send ≥10 messages within 1.5 s. |
+| `antilink` | — | Enables or disables link detection. Members who post links are actioned. Supports a per-guild whitelist (`linktrusted_<guildId>`). |
+| `antialt` | — | Kicks accounts created less than ~14 days ago on join (`antiraid_<guildId>`). |
+| `antibot` | — | Prevents unauthorized bot additions (`anti-bot_<guildId>`). |
+| `antivanity` | — | Protects the guild vanity URL from being changed. |
+| `autosnipe` | — | Automatically re-posts deleted messages in the same channel. |
+| `vanityjoins` | — | Displays the guild's vanity URL and total join count via `guild.fetchVanityData()`. |
+
+## Server info
+
+Commands that display information about the server and its structure.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `serverinfo` | `sinfo` | Full server summary: owner, creation date, member counts, channels, boosts, emojis, stickers. Includes icon/banner buttons. |
+| `serveravatar` | — | Returns the guild's avatar/icon. |
+| `serverbanner` | — | Returns the guild's banner image. |
+| `servericon` | — | Returns the guild's icon URL. |
+| `channelinfo` | — | Shows information about a specified channel. |
+| `roleinfo` | — | Shows information about a specified role (color, permissions, members). |
+| `roles` | — | Lists all roles in the server. |
+| `inrole` | — | Lists all members who have a specific role. |
+| `emojis` | — | Lists all custom emojis in the server. |
+| `emojiinfo` | — | Shows information about a specific emoji. |
+| `members` | — | Shows the total member count. |
+| `users` | — | Lists users in the server. |
+| `bans` | — | Lists all current bans in the server. |
+| `boosters` | — | Lists all active Nitro boosters. |
+| `leadboard` | — | Shows the XP leaderboard for the server. |
+
+## User info
+
+Commands that look up information about a Discord user.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `userinfo` | `whois` | Shows a member's tag, join date, account creation date, highest role, and full role list. |
+| `avatar` | `av`, `pfp` | Returns a user's profile picture as an embed with webp/jpg/png download buttons. |
+| `banner` | — | Returns a user's profile banner. |
+| `names` | — | Shows the nickname history for a user. |
+| `messages` | — | Shows the message count for a user in the server. |
+| `usage` | — | Shows command usage statistics. |
+| `perms` | — | Lists the permissions a member holds in the server. |
+| `user` | — | Alias for basic user lookup. |
+
+## Utility
+
+General-purpose commands.
+
+| Command | Aliases | Description |
+|---|---|---|
+| `ping` | — | Returns WebSocket latency and REST round-trip time. |
+| `uptime` | — | Shows how long the bot has been running since last restart. |
+| `invite` | — | Sends the bot's OAuth2 invite link. |
+| `findserver` | — | Looks up a server by invite code. |
+| `firstmessage` | — | Returns a jump link to the first message in the current channel. |
+| `snipe` | `s` | Returns recently deleted messages in the current channel. Stored under `snipeindex_<channelId>`. Accepts an index argument to navigate the snipe history. |
+| `editsnipe` | — | Returns the previous content of a recently edited message. |
+| `help` | — | Lists available commands. |
+| `portal` | — | Sends a configured portal/invite link. |
+| `tags` | — | Lists available Discord `#0001` discriminator tags. Booster-only command. |
+
+## Fun and image
+
+Image manipulation and novelty commands.
+
+| Command | Description |
+|---|---|
+| `8ball` | Answers a yes/no question. |
+| `meme` | Returns a random meme from the Lumina API (title, image, upvote count, comment count). |
+| `drake` | Generates a Drake-format meme. |
+| `gay` | Applies a pride flag overlay to a user's avatar. |
+| `wasted` | Applies a GTA V "Wasted" overlay to a user's avatar. |
+| `wanted` | Generates a wanted poster with a user's avatar. |
+| `blurple` | Applies a Discord blurple color filter to an image. |
+| `green` | Applies a green color filter to an image. |
+| `supreme` | Generates a Supreme-style logo image. |
+| `trigger` | Applies a "triggered" effect to a user's avatar. |
+| `thanos` | Randomly snaps half the guild's members. |
+| `ocr` | Extracts text from an attached image using OCR. |
+| `enlarge` | Returns a full-size version of a custom emoji. |
+| `sticker` | Returns information about a sticker. |
+| `steal` | Adds an emoji from another server to the current server. |
+| `emojify` | Converts text into emoji letter sequences. |
+
+## Music and media
+
+| Command | Description |
+|---|---|
+| `spotify` | Displays a user's currently playing Spotify track (requires Rich Presence). |
+| `tiktok` | Fetches information about a TikTok video by URL. |
+| `ps4` | Displays a user's PlayStation Network activity. |
+
+## Economy and XP
+
+| Command | Aliases | Description |
+|---|---|---|
+| `rank` | `lvl`, `level` | Displays a canvacord rank card with current XP, level, and progress bar. XP is stored as `xp_<guildId>_<userId>`. Supports up to level 49. |
+| `xp` | — | Shows XP for yourself or another member. |
+| `credits` | — | Shows or manages the credits balance for a user. |
+| `boost` | — | Shows boost-related rewards or status. |
+
+## Miscellaneous
+
+| Command | Description |
+|---|---|
+| `poll` | Creates a poll with reaction voting. |
+| `quote` | Quotes a message by ID. |
+| `urban` | Looks up a term on Urban Dictionary. |
+| `crypto` | Returns a cryptocurrency price. |
+| `base64` | Encodes or decodes Base64 strings. |
+| `hex` | Converts hex color codes or displays a color swatch. |
+| `rps` | Plays rock-paper-scissors against the bot. |
+| `ttc` | Plays tic-tac-toe. |
+| `advice` | Returns a random piece of advice. |
+| `shibe` | Returns a random shiba inu image. |
+| `status` | Sets or shows the bot's status. |
+| `afk` | Sets an AFK status that auto-replies when you are mentioned. |
+| `reset` | Resets a user's XP or level data. |
+| `delete` | Deletes a specific message by ID. |
+| `command` | Enables or disables a specific command in the server. |
+| `eval` | Evaluates arbitrary JavaScript (bot owner only). |
+| `bash` | Executes a shell command (bot owner only). |
+| `test` | Internal test command. |
+| `v2` | Reserved for v2 feature preview. |
+
+## Command structure
+
+Every command file exports the same module shape. Here is `kick.js` as a representative example:
+
+```javascript
+const { MessageEmbed, Permissions } = require('discord.js');
+const { default_prefix, color, error, owner, checked, xmark } = require("../config.json");
+const talkedRecently = new Set();
+
+module.exports = {
+  name: 'kick',
+  description: 'kick mentioned user from the server',
+  aliases: [],
+  usage: '```YAML\n\n kick @heist#0001 spamming ``` ',
+  category: "moderation",
+  guildOnly: false,
+  args: false,
+  permissions: {
+    bot: [],
+    user: [],
+  },
+  execute: async (message, args, client) => {
+    // Rate-limit check: 3.5 s cooldown per user
+    if (talkedRecently.has(message.author.id)) {
+      message.react('⌛');
+    } else {
+      if (!message.member.permissions.has([Permissions.FLAGS.KICK_MEMBERS]))
+        return message.reply({ embeds: [missperms] });
+
+      let mentionedMember =
+        await message.mentions.members.first() ||
+        message.guild.members.cache.get(args[0]) ||
+        message.guild.members.cache.find(r =>
+          r.user.username.toLowerCase() === args.join(' ').toLocaleLowerCase()
+        );
+
+      await mentionedMember.kick({ reason }).then(() =>
+        message.reply({ embeds: [banned] })
+      );
+
+      talkedRecently.add(message.author.id);
+      setTimeout(() => talkedRecently.delete(message.author.id), 3500);
+    }
+  },
+};
+```
+
+All 119 command files follow this pattern. The `talkedRecently` `Set` enforces the per-user cooldown. Member resolution accepts a mention, user ID, username, or display name.

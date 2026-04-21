@@ -1,0 +1,223 @@
+---
+title: "Allstar: leaked Discord.js community bot reference"
+description: "Allstar is a leaked Discord.js community bot with 100+ prefix commands, slash commands, MariaDB persistence, and a built-in anti-nuke event handler system."
+---
+
+Allstar is a Discord.js community bot originally written by **luis** and leaked by `rx#1337` and `maserati#1337`. It ships with over 100 prefix commands, four slash commands, MariaDB-backed persistence via `quick.db`, image-manipulation through `canvacord`, Last.fm integration, and a comprehensive anti-nuke system wired directly into Discord's audit log events.
+
+<Warning>
+  The source contains hardcoded credentials — a MariaDB username/password (`luisu` / `Luis6672$`) and a bot token in `config.json`. Rotate all credentials before running this code in any environment. The token in the repository is exposed and should be considered compromised.
+</Warning>
+
+## Tech stack
+
+<CardGroup cols={2}>
+  <Card title="Discord.js v13" icon="discord">
+    Gateway client with all privileged intents enabled, including `GUILD_MEMBERS`, `GUILD_PRESENCES`, and `GUILD_BANS`.
+  </Card>
+  <Card title="MariaDB + quick.db" icon="database">
+    Connection pool via the `mariadb` package; `QuickDB` with a `MySQLDriver` wraps it for simple key-value persistence.
+  </Card>
+  <Card title="canvacord" icon="image">
+    Used for image-based fun commands such as `wanted`, `wasted`, `gay`, and `drake`.
+  </Card>
+  <Card title="discord-hybrid-sharding" icon="server">
+    Listed as a dependency for multi-process sharding, though `index.js` runs a single unsharded `Client`.
+  </Card>
+</CardGroup>
+
+Additional runtime dependencies include `lastfm`, `nekos.life`, `relevant-urban`, `tictactoe-complex-ai`, `ascii-table`, `canvacord`, `moment`, `ms`, `axios`, `node-fetch`, and `url-regex`.
+
+## Bot startup
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    cd allstar
+    npm install
+    ```
+  </Step>
+  <Step title="Configure credentials">
+    Edit `config.json` with your own token, owner ID, and MariaDB credentials in `index.js`.
+  </Step>
+  <Step title="Start the bot">
+    ```bash
+    node index.js
+    ```
+  </Step>
+</Steps>
+
+## Configuration
+
+`config.json` at the root of `allstar/` controls global defaults:
+
+```json
+{
+  "token": "<BOT_TOKEN>",
+  "color": "#7289da",
+  "error": "F7C91D",
+  "default_prefix": ",",
+  "owner": "<OWNER_USER_ID>",
+  "checked": "<:approve:...>",
+  "xmark": "<:dwarm:...>"
+}
+```
+
+| Field | Purpose |
+|---|---|
+| `token` | Discord bot token passed to `client.login()` |
+| `color` | Hex color used in embed responses |
+| `error` | Hex color used in error embeds |
+| `default_prefix` | Fallback prefix when no per-guild prefix is set |
+| `owner` | Owner user ID used for owner-only commands |
+
+## Client initialization
+
+`index.js` creates the client with all gateway intents, spoofs the `$browser` property to `"Discord iOS"` for mobile status, sets `restTimeOffset: 0`, and immediately registers slash commands to two hardcoded guild IDs via the `@discordjs/rest` REST client:
+
+```javascript
+const client = new Client({
+  intents: [
+    Intents.FLAGS.GUILDS,
+    Intents.FLAGS.GUILD_MEMBERS,
+    Intents.FLAGS.GUILD_BANS,
+    Intents.FLAGS.GUILD_EMOJIS_AND_STICKERS,
+    Intents.FLAGS.GUILD_WEBHOOKS,
+    Intents.FLAGS.GUILD_PRESENCES,
+    Intents.FLAGS.GUILD_MESSAGES,
+    // ...and more
+  ],
+  ws: { properties: { $browser: "Discord iOS" } },
+  restTimeOffset: 0,
+  allowedMentions: { parse: ["roles", "users"], repliedUser: false },
+});
+
+// MariaDB pool
+global.db = mariadb.createPool({
+  host: "localhost",
+  user: "luisu",
+  password: "Luis6672$",
+  connectionLimit: 5,
+});
+
+// QuickDB on top of MariaDB
+const mysql = new MySQLDriver({
+  host: "localhost", user: "luisu",
+  password: "Luis6672$", database: "allstar",
+});
+await mysql.connect();
+client.db = new QuickDB({ driver: mysql });
+```
+
+## Command categories
+
+Commands live in `allstar/commands/` and are loaded at startup by `handlers/command.js`. The full set of 110+ command files breaks down into these categories:
+
+<Tabs>
+  <Tab title="Moderation">
+    `ban`, `unban`, `unbanall`, `kick`, `timeout`, `purge`, `purgeuser`, `lock`, `unlock`, `joinlock`, `mocklock`, `mockunlock`, `nuke`, `thanos`, `role`, `nickname`, `clearnames`, `blacklist`, `whitelist`, `whitelisted`, `perms`
+  </Tab>
+  <Tab title="Server management">
+    `welcome`, `goodbye`, `autorole`, `logs`, `antinuke`, `antispam`, `antilink`, `antialt`, `antibot`, `antivanity`, `autosnipe`, `verify`, `joindm`, `boost`, `boosters`, `portal`, `trigger`, `tags`, `prefix`, `selfprefix`, `createembed`, `status`
+  </Tab>
+  <Tab title="Utility">
+    `ping`, `uptime`, `userinfo`, `serverinfo`, `channelinfo`, `roleinfo`, `emojiinfo`, `avatar`, `banner`, `serveravatar`, `serverbanner`, `servericon`, `membercount`, `inrole`, `roles`, `emojis`, `sticker`, `invite`, `firstmessage`, `snipe`, `editsnipe`, `messages`, `names`, `bans`, `usage`, `botinfo`, `credits`
+  </Tab>
+  <Tab title="Fun / image">
+    `8ball`, `meme`, `drake`, `gay`, `wasted`, `wanted`, `blurple`, `green`, `supreme`, `shibe`, `quote`, `emojify`, `enlarge`, `image`, `steal`, `hex`, `base64`, `ocr`, `urban`, `advice`, `rps`, `ttc`, `poll`, `rank`, `xp`, `leadboard`, `crypto`, `ps4`, `shit`
+  </Tab>
+  <Tab title="Media">
+    `spotify`, `tiktok`
+  </Tab>
+</Tabs>
+
+## Slash commands
+
+Four slash commands are registered under `allstar/slash-cmd/` and deployed to guilds at startup via `Routes.applicationGuildCommands`:
+
+| File | Command name |
+|---|---|
+| `avatar.js` | `/avatar` |
+| `eval.js` | `/eval` |
+| `help.js` | `/help` |
+| `jsk.js` | `/jsk` |
+
+Registration uses `@discordjs/rest` v1 and `discord-api-types/v9`:
+
+```javascript
+await rest.put(
+  Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+  { body: client.slash_data },
+);
+```
+
+## Anti-nuke system
+
+The anti-nuke layer is implemented directly in `index.js` as a collection of guild audit-log event listeners. Each protection is individually toggleable via `quick.db` keys and respects a per-guild `trustedusers` list. The guild owner and the bot itself are always exempt.
+
+<Accordion title="Member protections">
+  - **`antiban`** — on `guildBanAdd`, if the executor is not trusted, the bot unbans the target and bans the executor.
+  - **`antikick`** — on `guildMemberRemove`, fetches `MEMBER_KICK` logs within a 2-second window; bans the kicker.
+  - **`antibotadd`** — on `guildMemberAdd` for bots, checks `BOT_ADD` audit logs; kicks the newly added bot and bans whoever added it.
+  - **`antirolemember`** — on `guildMemberUpdate`, reverts any unauthorized role assignment and bans the executor.
+</Accordion>
+
+<Accordion title="Channel protections">
+  - **`antichannelcreate`** — deletes the newly created channel and bans the executor.
+  - **`antichanneldelete`** — clones the deleted channel to restore it and bans the executor.
+  - **`antichannelupdate`** — reverts name and topic changes; bans the executor.
+</Accordion>
+
+<Accordion title="Role protections">
+  - **`antirolecreate`** — deletes the new role and bans the executor.
+  - **`antiroledelete`** — recreates the deleted role (preserving name and color) and bans the executor.
+  - **`antiroleupdate`** — restores the original role permissions and name; bans the executor.
+</Accordion>
+
+<Accordion title="Webhook protections">
+  - **`antiwebhookcreate`** — deletes all webhooks in the guild and bans the executor.
+  - **`antiwebhookupdate`** — bans the executor on any webhook modification.
+  - **`antiwebhookdelete`** — bans the executor on webhook deletion.
+</Accordion>
+
+<Accordion title="Guild / vanity protections">
+  - **`antiguildupdate`** — reverts server name and icon changes; also reverts community feature additions and bans the executor.
+  - **`vanityURL`** — monitors `guildUpdate` for vanity URL changes; issues a `PATCH /guilds/:id/vanity-url` request to restore the stored code and bans the executor. A separate `vanitytrusted` list gates this protection independently of the main trusted-users list.
+</Accordion>
+
+## Anti-spam (in-memory rate limiter)
+
+Allstar implements an in-memory rate limiter directly in `index.js`. If `antispam` is enabled for a guild, any member (excluding trusted users) who sends 10 messages within a 1500 ms sliding window is timed out for approximately 8 minutes and has their roles stripped. Messages containing `@everyone` or `@here` trigger an immediate timeout regardless of message rate.
+
+```javascript
+const LIMIT = 10;
+const DIFF  = 1500; // ms between messages before counter resets
+
+// On hitting LIMIT messages in DIFF ms:
+await member.timeout(470000, { reason: "Anti Raid" });
+await member.edit({ roles: "" });
+message.channel.bulkDelete(LIMIT);
+```
+
+## Events
+
+The `allstar/events/` directory contains additional event handlers loaded by `handlers/event.js`:
+
+| File | Purpose |
+|---|---|
+| `activity.js` | Tracks member activity |
+| `afk.js` | AFK detection and messaging |
+| `allstar.js` | Core bot events (ready, etc.) |
+| `antilink.js` / `antilink2.js` | Link-filtering on message create |
+| `messageCreate.js` | Primary message handler / prefix dispatch |
+| `messageDelete.js` | Snipe cache for the `snipe` command |
+| `messageUpdate.js` | Edit-snipe cache for `editsnipe` |
+| `names.js` | Username change tracking |
+| `ready.js` | On-ready setup |
+| `tags.js` | Custom tag response system |
+| `verify.js` | Verification gate |
+| `xp.js` | XP gain on message |
+
+## Starboard
+
+Allstar includes a starboard feature listening on `messageReactionAdd` and `messageReactionRemove`. When a message accumulates star reactions meeting the configured threshold (`starthreshold<guildId>`), the bot posts or updates an embed in the configured starboard channel with a message-link button.

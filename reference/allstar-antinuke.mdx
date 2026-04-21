@@ -1,0 +1,222 @@
+---
+title: "Allstar anti-nuke: server protection event handlers"
+description: "Allstar's anti-nuke monitors audit logs and auto-bans executors of destructive actions, reverting channel, role, webhook, and vanity URL changes where possible."
+---
+
+Allstar's anti-nuke system listens to Discord gateway events, fetches the relevant audit log entry, and compares the executor against the server owner, the bot itself, and the trusted-user list. If the executor is not exempt and the corresponding protection is enabled, the bot bans the executor and — where possible — reverts the change.
+
+<Warning>
+  The anti-nuke system requires the bot to hold **Administrator** permission (`Permissions.FLAGS.ADMINISTRATOR`). Every handler in `index.js` checks `guild.me.permissions.has([Permissions.FLAGS.ADMINISTRATOR])` before proceeding. If the bot loses Administrator, all protections silently stop working.
+</Warning>
+
+## How it works
+
+<Steps>
+  <Step title="Enable antinuke">
+    Run `antinuke on`. This sets `anti-new_<guildId> = true` in quick.db and enables all individual protection keys at once.
+  </Step>
+  <Step title="Whitelist trusted admins">
+    Run `whitelist @user` for every admin who should be allowed to perform moderation actions. Their user IDs are pushed into `trustedusers_<guildId>`. The bot will skip all antinuke actions when these users are the executor.
+  </Step>
+  <Step title="Fine-tune individual protections">
+    Use `antinuke enable <event>` or `antinuke disable <event>` to toggle specific handlers without touching the master switch. Run `antinuke settings` to see the current state of every protection.
+  </Step>
+  <Step title="Configure audit logging">
+    Run `logs channel #channel` to set the channel for audit log posts. All antinuke events (and general moderation) are logged there regardless of whether the protection fires.
+  </Step>
+</Steps>
+
+## Master toggle
+
+| Key | Type | Set by |
+|---|---|---|
+| `anti-new_<guildId>` | `true` / deleted | `antinuke on` / `antinuke off` |
+
+When this key is absent or not `true`, every individual protection check in `index.js` returns early without taking action.
+
+## Trusted users
+
+Trusted users are exempt from all antinuke actions. The bot owner and the server owner are always implicitly exempt (hardcoded checks in every handler).
+
+| Key | Value | Set by |
+|---|---|---|
+| `trustedusers_<guildId>` | `Array<{ user: string }>` | `whitelist @user` |
+
+<Tip>
+  Whitelist all admins who legitimately create channels, manage roles, or add bots **before** enabling antinuke. The bot will immediately ban the first non-whitelisted admin who performs a protected action.
+</Tip>
+
+## Protected events
+
+### Anti-ban
+
+**DB key:** `antiban_<guildId>` | **Discord event:** `guildBanAdd`
+
+When a member is banned, the bot fetches the `MEMBER_BAN_ADD` audit log. If the executor is not the owner, the bot, or a trusted user, the executor is banned and the victim is unbanned.
+
+```javascript
+// index.js:704-748
+client.on("guildBanAdd", async (member) => {
+  const auditLogs = await member.guild.fetchAuditLogs({ limit: 2, type: "MEMBER_BAN_ADD" });
+  const { executor, target } = auditLogs.entries.first();
+
+  if (executor.id === member.guild.ownerId) return;
+  if (executor.id === client.user.id) return;
+  if (antinuke !== true) return;
+  let antiban = db.get(`antiban_${member.guild.id}`);
+  if (antiban !== true) return;
+
+  bannedUsers.push(target.id);
+  member.guild.members.ban(executor.id, { reason: "Anti Member Ban" });
+  bannedUsers.forEach(async ban => {
+    await member.guild.members.unban(ban).catch(() => {});
+  });
+});
+```
+
+### Anti-kick
+
+**DB key:** `antikick_<guildId>` | **Discord event:** `guildMemberRemove`
+
+The handler checks `MEMBER_KICK` audit logs. It only fires if the log entry is less than 2 seconds old (to avoid acting on old entries). The executor is banned.
+
+### Anti-channel create
+
+**DB key:** `antichannelcreate_<guildId>` | **Discord event:** `channelCreate`
+
+The newly created channel is deleted and the executor is banned.
+
+```javascript
+// index.js:564-603
+client.on("channelCreate", async (channel) => {
+  const { executor } = auditLogs.entries.first();
+  // ...exemption checks...
+  channel.delete().catch(() => {});
+  channel.guild.members.ban(executor.id, { reason: "Anti Channel Create" });
+});
+```
+
+### Anti-channel delete
+
+**DB key:** `antichanneldelete_<guildId>` | **Discord event:** `channelDelete`
+
+The deleted channel is cloned (restoring name, permissions, and type) and the executor is banned.
+
+### Anti-channel update
+
+**DB key:** `antichannelupdate_<guildId>` | **Discord event:** `channelUpdate`
+
+Reverts the channel name and, for text channels, the topic. The executor is banned.
+
+### Anti-role create
+
+**DB key:** `antirolecreate_<guildId>` | **Discord event:** `roleCreate`
+
+The newly created role is deleted and the executor is banned. Managed roles (bot integrations) are ignored.
+
+### Anti-role delete
+
+**DB key:** `antiroledelete_<guildId>` | **Discord event:** `roleDelete`
+
+The deleted role is recreated with the original name and color. The executor is banned. Managed roles are ignored.
+
+### Anti-role update
+
+**DB key:** `antiroleupdate_<guildId>` | **Discord event:** `roleUpdate`
+
+Reverts the role's permissions bitfield and name to their previous values. The executor is banned.
+
+### Anti-role member update
+
+**DB key:** `antirolemember_<guildId>` | **Discord event:** `guildMemberUpdate`
+
+When a member's roles change, the old role set is restored and the executor is banned.
+
+### Anti-bot add
+
+**DB key:** `antibotadd_<guildId>` | **Discord event:** `guildMemberAdd` (bot accounts only)
+
+When a bot joins, the bot fetches the `BOT_ADD` audit log. The added bot is kicked and the user who authorized the OAuth2 flow is banned.
+
+### Anti-webhook create
+
+**DB key:** `antiwebhookcreate_<guildId>` | **Discord event:** `webhookUpdate` (CREATE audit type)
+
+All webhooks in the guild are deleted (`guild.fetchWebhooks()` → `web.delete()`) and the executor is banned.
+
+### Anti-webhook update
+
+**DB key:** `antiwebhookupdate_<guildId>` | **Discord event:** `webhookUpdate` (UPDATE audit type)
+
+The executor is banned. No webhook revert is performed.
+
+### Anti-webhook delete
+
+**DB key:** `antiwebhookdelete_<guildId>` | **Discord event:** `webhookUpdate` (DELETE audit type)
+
+The executor is banned.
+
+### Anti-guild update
+
+**DB key:** `antiguildupdate_<guildId>` | **Discord event:** `guildUpdate`
+
+Reverts the guild name and icon to their previous values. Also reverts guild features if changed, and removes `COMMUNITY` mode if it was not previously enabled. The executor is banned.
+
+### Anti-spam
+
+**DB key:** `antispam_<guildId>` | **Discord event:** `messageCreate`
+
+Not part of the main antinuke toggle — configured separately with `antispam on`. Tracks a per-user message map with a 1.5-second window and a threshold of 10 messages. When the threshold is hit, the member is timed out for ~470 000 ms and all their roles are stripped. Members who mention `@everyone` or `@here` are immediately timed out and have their roles removed.
+
+Trusted users (`trustedusers_<guildId>`) are exempt from anti-spam.
+
+### Anti-alt
+
+**DB key:** `antiraid_<guildId>` | **Discord event:** `guildMemberAdd`
+
+Configured with `antialt on`. When a member joins, the handler computes `Date.now() - account.createdAt`. If the account is younger than ~14 days (1 210 000 000 ms), the member is kicked with the reason `"Anti Alt Account"`.
+
+### Vanity URL protection
+
+**DB key:** `vanityURL_<guildId>` | **Discord event:** `guildUpdate`
+
+Separate from the main antinuke toggle — configured with `antivanity`. When the guild's vanity URL changes and the executor is not the owner or a vanity-trusted user (`vanitytrusted_<guildId>`), the bot issues a Discord API `PATCH /guilds/<id>/vanity-url` request to restore the stored vanity code (`vanity_<guildId>`). The executor is also banned.
+
+```javascript
+// index.js:1186-1207
+if (oldVanityCode !== newVanityCode) {
+  request({
+    method: 'PATCH',
+    url: `https://discord.com/api/v9/guilds/${n.id}/vanity-url`,
+    headers: { Authorization: `Bot ${client.token}` },
+    json: { code: `${vanity}` },
+  }, (err, res, bod) => { if (err) return; });
+}
+n.members.ban(executor.id, { reason: "Anti Vanity Update" });
+```
+
+## Protection reference
+
+| Protection | DB key | Action on trigger |
+|---|---|---|
+| Anti-ban | `antiban_<guildId>` | Unbans victims, bans executor |
+| Anti-kick | `antikick_<guildId>` | Bans executor |
+| Anti-channel create | `antichannelcreate_<guildId>` | Deletes channel, bans executor |
+| Anti-channel delete | `antichanneldelete_<guildId>` | Clones channel, bans executor |
+| Anti-channel update | `antichannelupdate_<guildId>` | Reverts name/topic, bans executor |
+| Anti-role create | `antirolecreate_<guildId>` | Deletes role, bans executor |
+| Anti-role delete | `antiroledelete_<guildId>` | Recreates role, bans executor |
+| Anti-role update | `antiroleupdate_<guildId>` | Reverts permissions/name, bans executor |
+| Anti-role member | `antirolemember_<guildId>` | Reverts role assignment, bans executor |
+| Anti-bot add | `antibotadd_<guildId>` | Kicks bot, bans adder |
+| Anti-webhook create | `antiwebhookcreate_<guildId>` | Deletes all webhooks, bans executor |
+| Anti-webhook update | `antiwebhookupdate_<guildId>` | Bans executor |
+| Anti-webhook delete | `antiwebhookdelete_<guildId>` | Bans executor |
+| Anti-guild update | `antiguildupdate_<guildId>` | Reverts icon/name, bans executor |
+| Anti-spam | `antispam_<guildId>` | Times out spammer, strips roles |
+| Anti-alt | `antiraid_<guildId>` | Kicks accounts < 14 days old |
+| Vanity URL | `vanityURL_<guildId>` | Restores vanity via API PATCH, bans executor |
+
+<Tip>
+  Use `antinuke settings` to view the enabled/disabled state of every individual protection at a glance. Use `antinuke enable <event>` / `antinuke disable <event>` to toggle them without running `antinuke off` and back on.
+</Tip>
